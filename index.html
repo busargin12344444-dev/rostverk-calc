@@ -309,7 +309,7 @@ dialog.issues .toolbar { margin-top: 16px; justify-content: flex-end; }
           <li>Начало координат — угол ростверка у проверяемой сваи; X и Y направлены внутрь ростверка. Для крайней сваи свободен только край Y=0. Допуск на смещение сваи по умолчанию принимается минимальным по СП 45.13330.2017, табл. 12.1 (0,2d при d ≤ 500 мм, иначе 100 мм), его можно изменить вручную; он проверяется в обе стороны — внутрь и к краям, для каждой проверки принимается худшее. «Не требуется» по прим. 2 к табл. 1 Пособия определяется по проектному положению сваи.</li>
           <li>Свес ростверка: по проектному положению — не менее заданного минимума (Пособие п. 4.2, 100 мм); с учётом допускаемых отклонений свай (СП 24.13330.2021 п. 8.3) — предупреждение.</li>
           <li>По Пособию (п. 2.9) пирамида продавливания угловой сваей идёт от внутренних граней сваи до граней колонны (подколонника); β1, β2 — по табл. 1 с интерполяцией; c0i принимается от 0,4·h01 до h01; h01 — от верха свай. Продавливающая сила — полная нагрузка на сваю (в запас).</li>
-          <li>По СП 63 (пп. 8.1.46–8.1.50) рассматриваются замкнутый контур (если не выходит за край) и незамкнутые от свободных краёв; принимается наибольший K. Учитываются половина момента в месте приложения нагрузки и момент F·e0 от смещения силы относительно ЦТ контура; моментный член не более 0,5·F/Fb,ult.</li>
+          <li>По СП 63 (пп. 8.1.46–8.1.50) рассматриваются замкнутый контур (если не выходит за край) и незамкнутые от свободных краёв, а у узких ростверков — и от дальних краёв X = l, Y = b; действует только контур, целиком лежащий в ростверке; принимается наибольший K. Если свая перекрывает ширину ростверка (куст из двух свай), контур вырождается в линию — продавливание сваей не рассматривается, ростверк проверяется как балка по поперечной силе (СП 63 пп. 8.1.32–8.1.33). Учитываются половина момента в месте приложения нагрузки и момент F·e0 от смещения силы относительно ЦТ контура; моментный член не более 0,5·F/Fb,ult.</li>
           <li>Продавливание колонной по Пособию: Fper = 2·ΣFi свай вне основания пирамиды с наиболее нагруженной стороны (п. 2.3), α — в знаменателе ф. (1), для стакана по ф. (2), (3); при многорядных сваях — пирамиды с гранями под 45° (п. 2.5); куст из двух свай — ф. (8) (пп. 2.6, 2.7). По СП 63 — контур на 0,5·h0 от граней колонны, сила за вычетом реакций свай в пределах основания пирамиды. h0 = h − а.</li>
           <li>Поперечная сила — в сечениях у внутренних граней каждого ряда свай за гранью колонны (Пособие п. 2.11), Qb по СП 63 ф. (8.57). Изгиб — по граням колонны, M = ΣFi·(xi + e0). Вес ростверка и грунта на консолях не учитывается (в запас).</li>
           <li>Наклонное сечение по моменту: по СП 63 п. 8.1.35 — Ns = Rs·As·ls/lan (п. 10.3.26), Rbt в l0,an с γb1, снижение lan до 30 % за лапки и обжатие от реакции сваи (п. 10.3.25); по Пособию п. 2.15 — при Q ≤ 0,6·Rbt·b·h0 прочность обеспечена, иначе анкеровка у крайнего ряда свай по ф. (27)–(31).</li>
@@ -650,55 +650,79 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     const useSw = yes(p.useTransverse);
     const useFe0 = yes(p.useFe0);
 
+    // Контуры продавливания сваей: прямоугольник на расстоянии d от граней сваи, стороны которого можно
+    // «открыть» к краям ростверка (стороны, примыкающие к открытому краю, продлеваются до него).
+    // Первые четыре варианта — как в Excel-шаблоне (свободные края X = 0 и Y = 0); дальние края X = l, Y = b
+    // открываются, если до них близко (узкие ростверки, кусты из двух свай). Вариант действует, если все
+    // его стороны лежат в пределах ростверка.
+    const Lcm = p.l / 10, Bcm = p.b / 10;
+    function contourGeom(segs) {
+      let u = 0, sx = 0, sy = 0;
+      for (const [x1, y1, x2, y2] of segs) { const L = Math.hypot(x2 - x1, y2 - y1); u += L; sx += L * (x1 + x2) / 2; sy += L * (y1 + y2) / 2; }
+      const x0 = sx / u, y0 = sy / u;
+      const I = (a1, a2, b1, b2, c0) => (a1 === a2 ? Math.abs(b2 - b1) * (a1 - c0) ** 2 : (Math.abs((a2 - c0) ** 3 - (a1 - c0) ** 3)) / 3);
+      let IX = 0, IY = 0, mx = 0, my = 0;
+      for (const [x1, y1, x2, y2] of segs) {
+        IX += I(x1, x2, y1, y2, x0); IY += I(y1, y2, x1, x2, y0);
+        mx = Math.max(mx, Math.abs(x1 - x0), Math.abs(x2 - x0)); my = Math.max(my, Math.abs(y1 - y0), Math.abs(y2 - y0));
+      }
+      // контур из одной линии: момент сопротивления поперёк линии равен нулю
+      return { u, x0, y0, IX, IY, WX: mx > 1e-9 ? IX / mx : 0, WY: my > 1e-9 ? IY / my : 0 };
+    }
     function contours(d, withSw) {
-      const active = [
-        corner ? (axCm >= d && ayCm >= d) : (ayCm >= d),
-        corner,
-        corner && ayCm >= d,
-        corner ? axCm >= d : true,
+      const X1 = axCm, X2 = axCm + bpCm, Y1 = ayCm, Y2 = ayCm + bpCm;   // грани сваи
+      const xa = X1 - d, xb = X2 + d, ya = Y1 - d, yb = Y2 + d;           // стороны замкнутого контура
+      // Дальний край имеет смысл открывать, если до него ближе, чем d плюс половина стороны контура
+      const nearFar = (gap) => gap < d + (bpCm + 2 * d) / 2;
+      const farX = corner && nearFar(Lcm - X2), farY = nearFar(Bcm - Y2);
+      const sets = [
+        ['Замкн.', {}], ['L-образ.', { x0: 1, y0: 1 }], ['П (X=0)', { x0: 1 }], ['П (Y=0)', { y0: 1 }],
       ];
-      const names = ['Замкн.', 'L-образ.', 'П (X=0)', 'П (Y=0)'];
-      return names.map((name, i) => {
-        let Lx, Ly, u, x0, y0, IX, IY, WX, WY;
-        if (i === 0) {
-          Lx = bpCm + 2 * d; Ly = bpCm + 2 * d; u = 2 * (Lx + Ly); x0 = xcCm; y0 = ycCm;
-          IX = Ly * Lx ** 2 / 2 + Lx ** 3 / 6; IY = Lx * Ly ** 2 / 2 + Ly ** 3 / 6;
-          WX = IX / (Lx / 2); WY = IY / (Ly / 2);
-        } else if (i === 1) {
-          Lx = axCm + bpCm + d; Ly = ayCm + bpCm + d; u = Lx + Ly;
-          x0 = Lx * (Ly + Lx / 2) / u; y0 = Ly * (Lx + Ly / 2) / u;
-          IX = Ly * (Lx - x0) ** 2 + (Lx ** 3 / 3 - Lx ** 2 * x0 + Lx * x0 ** 2);
-          IY = Lx * (Ly - y0) ** 2 + (Ly ** 3 / 3 - Ly ** 2 * y0 + Ly * y0 ** 2);
-          WX = IX / Math.max(x0, Lx - x0); WY = IY / Math.max(y0, Ly - y0);
-        } else if (i === 2) {
-          Lx = axCm + bpCm + d; Ly = bpCm + 2 * d; u = 2 * Lx + Ly;
-          x0 = (Lx ** 2 + Ly * Lx) / u; y0 = ycCm;
-          IX = 2 * (Lx ** 3 / 3 - Lx ** 2 * x0 + Lx * x0 ** 2) + Ly * (Lx - x0) ** 2;
-          IY = 2 * Lx * (Ly / 2) ** 2 + Ly ** 3 / 12;
-          WX = IX / Math.max(x0, Lx - x0); WY = IY / (Ly / 2);
-        } else {
-          Lx = bpCm + 2 * d; Ly = ayCm + bpCm + d; u = Lx + 2 * Ly;
-          x0 = xcCm; y0 = (Ly ** 2 + Lx * Ly) / u;
-          IX = 2 * Ly * (Lx / 2) ** 2 + Lx ** 3 / 12;
-          IY = 2 * (Ly ** 3 / 3 - Ly ** 2 * y0 + Ly * y0 ** 2) + Lx * (Ly - y0) ** 2;
-          WX = IX / (Lx / 2); WY = IY / Math.max(y0, Ly - y0);
+      const nm = { x0: 'X=0', y0: 'Y=0', xl: 'X=l', yb: 'Y=b' };
+      for (const fx of (farX ? [0, 1] : [0])) {
+        for (const fy of (farY ? [0, 1] : [0])) {
+          if (!fx && !fy) continue;
+          for (const [, base] of sets.slice(0, 4)) {
+            const o = { ...base }; if (fx) o.xl = 1; if (fy) o.yb = 1;
+            // открыт к двум противоположным краям — контур вырождается в линию поперёк ростверка:
+            // это работа балки, она проверяется по поперечной силе (СП 63 пп. 8.1.32–8.1.33)
+            if ((o.x0 && o.xl) || (o.y0 && o.yb)) continue;
+            sets.push(['Открыт к ' + Object.keys(o).map((k) => nm[k]).join(', '), o]);
+          }
         }
+      }
+      return sets.slice(0, sets.length).filter((v, k) => k < 4 || corner || !(v[1].x0 || v[1].xl)).map(([name, o], i) => {
+        // для крайней сваи края X не рассматриваются (как в шаблоне): контуры, открытые к X, не действуют
+        const xs = o.x0 ? 0 : xa, xe = o.xl ? Lcm : xb, ys = o.y0 ? 0 : ya, ye = o.yb ? Bcm : yb;
+        const segs = [];
+        if (!o.y0) segs.push([xs, ya, xe, ya]);
+        if (!o.yb) segs.push([xs, yb, xe, yb]);
+        if (!o.x0) segs.push([xa, ys, xa, ye]);
+        if (!o.xl) segs.push([xb, ys, xb, ye]);
+        const inside = (corner ? ((o.x0 || xa >= -1e-9) && (o.xl || xb <= Lcm + 1e-9)) : !(o.x0 || o.xl))
+          && (o.y0 || ya >= -1e-9) && (o.yb || yb <= Bcm + 1e-9);
+        const isActive = segs.length > 0 && inside && (i !== 1 || corner);
+        const g = contourGeom(segs.length ? segs : [[xa, ya, xb, ya]]);
+        const { u, x0, y0, IX, IY, WX, WY } = g;
+        const Lx = xe - xs, Ly = ye - ys;
         const e0X = xcCm - x0, e0Y = ycCm - y0;
         const MX = p.kM * p.MXpile + (useFe0 ? p.F1 * e0X / 100 : 0);
         const MY = p.kM * p.MYpile + (useFe0 ? p.F1 * e0Y / 100 : 0);
         const Fb = RbtCm * u * h0cm;
         const MbX = RbtCm * WX * h0cm / 100, MbY = RbtCm * WY * h0cm / 100;
         const FFb = p.F1 / Fb;
-        const mTerm = Math.min(Math.abs(MX) / MbX + Math.abs(MY) / MbY, p.kLim * FFb);
-        const Kb = active[i] ? FFb + mTerm : null;
-        const res = { name, active: active[i], d, Lx, Ly, u, x0, y0, IX, IY, WX, WY, e0X, e0Y, MX, MY, Fb, MbX, MbY, FFb, mTerm, Kb };
+        // M / Mult; при Mult = 0 (контур-линия) моментный член ограничивается k·F/Fult по п. 8.1.46
+        const mr = (M, Mu) => (Math.abs(M) < 1e-12 ? 0 : Mu > 0 ? Math.abs(M) / Mu : Infinity);
+        const mTerm = Math.min(mr(MX, MbX) + mr(MY, MbY), p.kLim * FFb);
+        const Kb = isActive ? FFb + mTerm : null;
+        const res = { name, active: isActive, d, Lx, Ly, u, x0, y0, IX, IY, WX, WY, e0X, e0Y, MX, MY, Fb, MbX, MbY, FFb, mTerm, Kb, segs };
         if (withSw) {
           const Fsw = 0.8 * qsw * u;
           const Fult = useSw && Fsw >= 0.25 * Fb ? Math.min(Fb + Fsw, 2 * Fb) : Fb;
           const MXult = Fult > Fb ? Math.min(MbX + 0.8 * qsw * WX / 100, 2 * MbX) : MbX;
           const MYult = Fult > Fb ? Math.min(MbY + 0.8 * qsw * WY / 100, 2 * MbY) : MbY;
-          const Ksw = active[i]
-            ? p.F1 / Fult + Math.min(Math.abs(MX) / MXult + Math.abs(MY) / MYult, p.kLim * p.F1 / Fult)
+          const Ksw = isActive
+            ? p.F1 / Fult + Math.min(mr(MX, MXult) + mr(MY, MYult), p.kLim * p.F1 / Fult)
             : null;
           Object.assign(res, { qsw, Fsw, Fult, MXult, MYult, Ksw });
         }
@@ -707,14 +731,25 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     }
 
     const sp = contours(h0cm / 2, true);
-    const Kb = maxNum(sp.map((v) => v.Kb));
+    // Ни один контур не помещается в ростверк: свая перекрывает его ширину — продавливание сваей не
+    // рассматривается, ростверк работает как балка (проверка по поперечной силе)
+    const beam = !sp.some((v) => v.active);
+    const Kb = beam ? null : maxNum(sp.map((v) => v.Kb));
     const govIdx = argmaxNum(sp.map((v) => v.Kb), Kb);
-    const Ksw = useSw ? maxNum(sp.map((v) => v.Ksw)) : null;
+    const Ksw = useSw && !beam ? maxNum(sp.map((v) => v.Ksw)) : null;
     let swCounted = null;
-    if (useSw) swCounted = govIdx >= 0 && sp[govIdx].Fsw >= 0.25 * sp[govIdx].Fb;
+    if (useSw && !beam) swCounted = govIdx >= 0 && sp[govIdx].Fsw >= 0.25 * sp[govIdx].Fb;
     const spOut = contours(p.zw / 10 + h0cm / 2, false);
     const KbOut = useSw ? maxNum(spOut.map((v) => v.Kb)) : null;
+    // Дальний край ростверка вошёл в расчёт (контуры шаблона за краем или открытые к X = l, Y = b) — отличие от Excel
+    const farEdge = (vs) => {
+      const beyond = vs.slice(0, 4).some((v) => v.segs.some(([x1, y1, x2, y2]) => Math.max(x1, x2) > Lcm + 1e-9 || Math.max(y1, y2) > Bcm + 1e-9));
+      const kmax = (arr, key) => maxNum(arr.map((v) => v[key]));
+      const extraGoverns = ['Kb', 'Ksw'].some((key) => vs.length > 4 && kmax(vs.slice(4), key) > kmax(vs.slice(0, 4), key));
+      return beyond || extraGoverns;
+    };
     r.sp63 = {
+      farEdge: { main: farEdge(sp), out: farEdge(spOut) }, beam,
       variants: sp, K: Kb, governing: govIdx >= 0 ? sp[govIdx].name : null, governingIndex: govIdx,
       qsw, Ksw, swCounted, outside: spOut, KbOut, KbOutGoverning: useSw ? (spOut.find((v) => v.Kb === KbOut) || {}).name : null,
     };
@@ -831,7 +866,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     const rOut = computeOne({ ...p, shiftDir: 'К краям ростверка' });
     const kc = (rr) => (isNum(rr.corner.K) ? rr.corner.K : -1);
     const cGov = kc(rOut) > kc(rIn) ? rOut : rIn;
-    const ks = (rr) => rr.sp63.K + (isNum(rr.sp63.Ksw) ? rr.sp63.Ksw * 1e-6 : 0);
+    const ks = (rr) => (isNum(rr.sp63.K) ? rr.sp63.K : -1) + (isNum(rr.sp63.Ksw) ? rr.sp63.Ksw * 1e-6 : 0);
     const sGov = ks(rOut) > ks(rIn) ? rOut : rIn;
     const shiftBoth = { cornerIn: rIn.corner.K, cornerOut: rOut.corner.K, spIn: rIn.sp63.K, spOut: rOut.sp63.K };
     const r = rIn;
@@ -911,7 +946,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 
     // Все угловые сваи куста — по реакциям из таблицы (зеркальное отражение геометрии к углу X=0, Y=0)
     r.allCorners = [];
-    if (corner && r.n >= 3) {
+    if (corner && r.n >= 2) {
       const names = { '00': 'X = 0, Y = 0', '10': 'X = l, Y = 0', '01': 'X = 0, Y = b', '11': 'X = l, Y = b' };
       for (const [sx, sy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
         const mx = (x) => (sx ? p.l - x : x), my = (y) => (sy ? p.b - y : y);
@@ -926,12 +961,12 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
         };
         const rc = computeShifted(pc);
         const swOk = useSw && rc.sp63.swCounted && rc.sp63.KbOut <= 1;
-        const Ksp = swOk ? Math.min(rc.sp63.K, rc.sp63.Ksw) : rc.sp63.K;
+        const Ksp = rc.sp63.beam ? null : swOk ? Math.min(rc.sp63.K, rc.sp63.Ksw) : rc.sp63.K;
         const Kc = rc.corner.applicable ? rc.corner.K : null;
         r.allCorners.push({
           name: names[`${sx}${sy}`], pile: idx + 1, F: piles[idx].F,
           Kcorner: Kc, cornerStatus: rc.corner.status, Ksp, spGov: rc.sp63.governing,
-          K: Math.max(isNum(Kc) ? Kc : 0, Ksp),
+          K: Math.max(isNum(Kc) ? Kc : 0, isNum(Ksp) ? Ksp : 0),
         });
       }
     }
@@ -956,11 +991,14 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
         verdict: ok(r.colSp63.K) ? OK : NOK, pass: ok(r.colSp63.K) },
       { key: 'corner', title: 'Продавливание угловой сваей по Пособию (п. 2.9)', K: r.corner.K,
         verdict: !r.corner.applicable ? r.corner.status : ok(r.corner.K) ? OK : NOK, pass: r.corner.applicable ? ok(r.corner.K) : null },
-      { key: 'sp63', title: 'Продавливание сваей по СП 63 (бетон, контур 0,5·h0)', K: Kb,
-        verdict: ok(Kb) ? OK : NOK, pass: ok(Kb) },
+      r.sp63.beam
+        ? { key: 'sp63', title: 'Продавливание сваей по СП 63 (бетон, контур 0,5·h0)', K: null, pass: null,
+          verdict: 'Не выполняется: свая перекрывает ширину ростверка, он работает как балка — см. поперечную силу (СП 63 пп. 8.1.32–8.1.33)' }
+        : { key: 'sp63', title: 'Продавливание сваей по СП 63 (бетон, контур 0,5·h0)', K: Kb,
+          verdict: ok(Kb) ? OK : NOK, pass: ok(Kb) },
       { key: 'sp63sw', title: 'Продавливание сваей по СП 63 с поперечной арматурой', K: Ksw,
-        verdict: !useSw ? 'Не учитывается' : (ok(Ksw) && ok(KbOut) && swCounted) ? OK : NOK,
-        pass: useSw ? (ok(Ksw) && ok(KbOut) && swCounted) : null },
+        verdict: !useSw ? 'Не учитывается' : r.sp63.beam ? 'Не выполняется (ростверк работает как балка)' : (ok(Ksw) && ok(KbOut) && swCounted) ? OK : NOK,
+        pass: useSw && !r.sp63.beam ? (ok(Ksw) && ok(KbOut) && swCounted) : null },
       { key: 'allcorners', title: 'Все угловые сваи куста (Пособие п. 2.9 и СП 63, по реакциям из таблицы)', K: KallC,
         verdict: KallC === null ? 'Только для угловой сваи' : ok(KallC) ? OK : NOK, pass: KallC === null ? null : ok(KallC) },
       { key: 'strip', title: 'Поперечная сила — полоса между наклонными сечениями (СП 63 ф. 8.55)', K: KstripMax,
@@ -993,7 +1031,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     };
     // Продавливание сваей по СП 63: достаточно, чтобы прошла проверка по бетону ИЛИ с поперечной арматурой
     const overall = summary.filter((s) => s.key !== 'sp63' && s.key !== 'sp63sw').every((s) => s.pass !== false)
-      && (ok(Kb) || (useSw && swCounted && ok(Ksw) && ok(KbOut)));
+      && (r.sp63.beam || ok(Kb) || (useSw && swCounted && ok(Ksw) && ok(KbOut)));
     r.summary = summary;
     r.edgeCheck = edgeCheck;
     r.KMsMax = KMsMax; r.KPMax = KPMax;
@@ -1305,7 +1343,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     return { errors, warnings, result: errors.length ? null : r };
   }
 
-  const VERSION = '2026-10-15.5'; // должна совпадать с версией страницы и отчёта (index.html, report.js)
+  const VERSION = '2026-10-15.6'; // должна совпадать с версией страницы и отчёта (index.html, report.js)
   return { VERSION, compute, validate, suggest, DEFAULTS, CONCRETE, REBAR, BETA_TABLE, betaOf };
 });
 
@@ -22110,32 +22148,36 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     const sp = r.sp63;
     const g = sp.governingIndex >= 0 ? sp.variants[sp.governingIndex] : null;
     children.push(heading(`${sec}. Расчёт на продавливание ${corner ? 'угловой' : 'крайней'} сваей по СП 63.13330.2018`));
-    P(`Расчёт по пп. 8.1.46–8.1.50 СП 63.13330.2018. Расчётный контур — на расстоянии 0,5·h_{0} от граней сваи; рассматриваются замкнутый контур (если он не выходит за край ростверка) и незамкнутые контуры от свободных краёв, принимается наибольший коэффициент. Для незамкнутого контура учитывается момент F·e_{0} от смещения силы относительно центра тяжести контура (Пособие к СП 52-101, пп. 3.84, 3.85); момент в голове сваи учитывается с коэффициентом k_{M} = ${f(p.kM)}. Условие прочности (8.95) с ограничением моментного члена по п. 8.1.49:`, { keepNext: true });
-    eq(E(fr('F', 'F_{b,ult}'), ' + ', fr('M_{X}', 'M_{bX,ult}'), ' + ', fr('M_{Y}', 'M_{bY,ult}'), ' ≤ 1;   ',
-      fr('M_{X}', 'M_{bX,ult}'), ' + ', fr('M_{Y}', 'M_{bY,ult}'), ` ≤ ${f(p.kLim)}·`, fr('F', 'F_{b,ult}'), '.'));
-    if (g) {
-      P(`Определяющий контур — «${g.name}», направление допуска — ${sp.shiftText || r.shiftText}. Нагрузка на сваю F = ${f(p.F1, 1)} кН.`, { keepNext: true });
-      eq(`d = 0,5·h_{0} = ${f(g.d)} см;   L_{x} = ${f(g.Lx)} см;   L_{y} = ${f(g.Ly)} см;   u = ${f(g.u)} см;`, true);
-      eq(`F_{b,ult} = R_{bt}·u·h_{0} = ${f(RbtCm)}·${f(g.u)}·${f(h0)} = ${f(g.Fb, 1)} кН;`, true);
-      P(`Центр тяжести контура x_{0} = ${f(g.x0)} см, y_{0} = ${f(g.y0)} см; эксцентриситеты силы e_{0X} = ${f(g.e0X)} см, e_{0Y} = ${f(g.e0Y)} см.`, { keepNext: true });
-      eq(E('W_{bX} = ', fr('I_{bX}', 'y_{max}'), ' = ', fr(f(g.IX, 0), f(g.IX / g.WX)), ` = ${f(g.WX)} см^{2};   W_{bY} = `, fr(f(g.IY, 0), f(g.IY / g.WY)), ` = ${f(g.WY)} см^{2};`), true);
-      eq(`M_{bX,ult} = R_{bt}·W_{bX}·h_{0} = ${f(RbtCm)}·${f(g.WX)}·${f(h0)}·10^{−2} = ${f(g.MbX)} кН·м;   M_{bY,ult} = ${f(g.MbY)} кН·м;`, true);
-      eq(`M_{X} = k_{M}·M_{св,X} + F·e_{0X} = ${f(p.kM)}·${fp(p.MXpile)} + ${f(p.F1)}·${fp(g.e0X)}·10^{−2} = ${f(g.MX)} кН·м;   M_{Y} = ${f(g.MY)} кН·м;`, true);
-      eq(E('K = ', fr('F', 'F_{b,ult}'), ' + min', pr(fr('|M_{X}|', 'M_{bX,ult}'), ' + ', fr('|M_{Y}|', 'M_{bY,ult}'), `; ${f(p.kLim)}·`, fr('F', 'F_{b,ult}')),
-        ` = ${f(g.FFb)} + ${f(g.mTerm)} = ${k3(g.Kb)}.`));
-    }
-    table('Расчётные контуры по СП 63', ['Контур', 'Действует', 'u, см', 'F_{b,ult}, кН', 'K_{b}'],
-      sp.variants.map((q) => [q.name, q.active ? 'да' : 'нет (за краем)', f(q.u), f(q.Fb, 1), q.active ? k3(q.Kb) : '—']), 1, [22, 24, 16, 22, 16]);
-    children.push(conclusion(sp.K, 'прочность без поперечной арматуры обеспечена.', useSw ? 'прочность бетона недостаточна, учитывается поперечная арматура.' : 'прочность НЕ обеспечена.'));
-    if (useSw && g) {
-      children.push(heading(`${sec}.1. Учёт поперечной арматуры`, 2));
-      P(`Поперечная арматура ${p.swClass} Ø${p.dsw} мм, шаг вдоль контура s_{w} = ${p.sw} мм, рядов в полосе ±0,5·h_{0} — ${p.nr}, ширина зоны армирования z_{w} = ${p.zw} мм.`, { keepNext: true });
-      eq(E('q_{sw} = ', fr('R_{sw}·A_{sw}', 's_{w}'), ' = ', fr(`${f(RswCm)}·${p.nr}·π·${f(p.dsw / 10)}^{2}`, `4·${f(p.sw / 10)}`), ` = ${f(g.qsw)} кН/см;   F_{sw,ult} = 0,8·q_{sw}·u = ${f(g.Fsw, 1)} кН;`), true);
-      eq(`F_{ult} = F_{b,ult} + F_{sw,ult} ≤ 2·F_{b,ult};   F_{ult} = ${f(g.Fult, 1)} кН;`, true);
-      P(`F_{sw,ult} учитывается при F_{sw,ult} ≥ 0,25·F_{b,ult} — условие ${sp.swCounted ? 'выполняется' : 'НЕ выполняется, требуется увеличить A_{sw}'}. Предельные моменты M_{X,ult} = ${f(g.MXult)} кН·м, M_{Y,ult} = ${f(g.MYult)} кН·м; коэффициент по формуле (8.96):`, { keepNext: true });
-      eq(`K_{sw} = ${k3(sp.Ksw)}.`);
-      children.push(conclusion(sp.Ksw));
-      P(['Проверка за границей зоны поперечного армирования (контур на расстоянии z_{w} + 0,5·h_{0} от граней сваи, Пособие к СП 52-101, п. 3.86): ', m(`K_{b} = ${k3(sp.KbOut)} ${sp.KbOut <= 1 ? '≤' : '>'} 1`), '.']);
+    if (sp.beam) {
+      P(`Расчётный контур на расстоянии 0,5·h_{0} = ${f(h0 / 2)} см от граней сваи не помещается в ростверк ни в замкнутом, ни в незамкнутом виде: свая перекрывает ширину ростверка (b = ${f(p.b, 0)} мм), и контур вырождается в линию поперёк ростверка. Ростверк в этом месте работает как балка, поэтому вместо продавливания сваей выполняется расчёт по поперечной силе в наклонных сечениях (СП 63.13330.2018 пп. 8.1.32–8.1.33, раздел ${sec + 1}).`);
+    } else {
+      P(`Расчёт по пп. 8.1.46–8.1.50 СП 63.13330.2018. Расчётный контур — на расстоянии 0,5·h_{0} от граней сваи; рассматриваются замкнутый контур (если он не выходит за край ростверка) и незамкнутые контуры от свободных краёв, принимается наибольший коэффициент. Для незамкнутого контура учитывается момент F·e_{0} от смещения силы относительно центра тяжести контура (Пособие к СП 52-101, пп. 3.84, 3.85); момент в голове сваи учитывается с коэффициентом k_{M} = ${f(p.kM)}. Условие прочности (8.95) с ограничением моментного члена по п. 8.1.49:`, { keepNext: true });
+      eq(E(fr('F', 'F_{b,ult}'), ' + ', fr('M_{X}', 'M_{bX,ult}'), ' + ', fr('M_{Y}', 'M_{bY,ult}'), ' ≤ 1;   ',
+        fr('M_{X}', 'M_{bX,ult}'), ' + ', fr('M_{Y}', 'M_{bY,ult}'), ` ≤ ${f(p.kLim)}·`, fr('F', 'F_{b,ult}'), '.'));
+      if (g) {
+        P(`Определяющий контур — «${g.name}», направление допуска — ${sp.shiftText || r.shiftText}. Нагрузка на сваю F = ${f(p.F1, 1)} кН.`, { keepNext: true });
+        eq(`d = 0,5·h_{0} = ${f(g.d)} см;   L_{x} = ${f(g.Lx)} см;   L_{y} = ${f(g.Ly)} см;   u = ${f(g.u)} см;`, true);
+        eq(`F_{b,ult} = R_{bt}·u·h_{0} = ${f(RbtCm)}·${f(g.u)}·${f(h0)} = ${f(g.Fb, 1)} кН;`, true);
+        P(`Центр тяжести контура x_{0} = ${f(g.x0)} см, y_{0} = ${f(g.y0)} см; эксцентриситеты силы e_{0X} = ${f(g.e0X)} см, e_{0Y} = ${f(g.e0Y)} см.`, { keepNext: true });
+        eq(E('W_{bX} = ', fr('I_{bX}', 'y_{max}'), ' = ', fr(f(g.IX, 0), f(g.IX / g.WX)), ` = ${f(g.WX)} см^{2};   W_{bY} = `, fr(f(g.IY, 0), f(g.IY / g.WY)), ` = ${f(g.WY)} см^{2};`), true);
+        eq(`M_{bX,ult} = R_{bt}·W_{bX}·h_{0} = ${f(RbtCm)}·${f(g.WX)}·${f(h0)}·10^{−2} = ${f(g.MbX)} кН·м;   M_{bY,ult} = ${f(g.MbY)} кН·м;`, true);
+        eq(`M_{X} = k_{M}·M_{св,X} + F·e_{0X} = ${f(p.kM)}·${fp(p.MXpile)} + ${f(p.F1)}·${fp(g.e0X)}·10^{−2} = ${f(g.MX)} кН·м;   M_{Y} = ${f(g.MY)} кН·м;`, true);
+        eq(E('K = ', fr('F', 'F_{b,ult}'), ' + min', pr(fr('|M_{X}|', 'M_{bX,ult}'), ' + ', fr('|M_{Y}|', 'M_{bY,ult}'), `; ${f(p.kLim)}·`, fr('F', 'F_{b,ult}')),
+          ` = ${f(g.FFb)} + ${f(g.mTerm)} = ${k3(g.Kb)}.`));
+      }
+      table('Расчётные контуры по СП 63', ['Контур', 'Действует', 'u, см', 'F_{b,ult}, кН', 'K_{b}'],
+        sp.variants.map((q) => [q.name, q.active ? 'да' : 'нет (за краем)', f(q.u), f(q.Fb, 1), q.active ? k3(q.Kb) : '—']), 1, [22, 24, 16, 22, 16]);
+      children.push(conclusion(sp.K, 'прочность без поперечной арматуры обеспечена.', useSw ? 'прочность бетона недостаточна, учитывается поперечная арматура.' : 'прочность НЕ обеспечена.'));
+      if (useSw && g) {
+        children.push(heading(`${sec}.1. Учёт поперечной арматуры`, 2));
+        P(`Поперечная арматура ${p.swClass} Ø${p.dsw} мм, шаг вдоль контура s_{w} = ${p.sw} мм, рядов в полосе ±0,5·h_{0} — ${p.nr}, ширина зоны армирования z_{w} = ${p.zw} мм.`, { keepNext: true });
+        eq(E('q_{sw} = ', fr('R_{sw}·A_{sw}', 's_{w}'), ' = ', fr(`${f(RswCm)}·${p.nr}·π·${f(p.dsw / 10)}^{2}`, `4·${f(p.sw / 10)}`), ` = ${f(g.qsw)} кН/см;   F_{sw,ult} = 0,8·q_{sw}·u = ${f(g.Fsw, 1)} кН;`), true);
+        eq(`F_{ult} = F_{b,ult} + F_{sw,ult} ≤ 2·F_{b,ult};   F_{ult} = ${f(g.Fult, 1)} кН;`, true);
+        P(`F_{sw,ult} учитывается при F_{sw,ult} ≥ 0,25·F_{b,ult} — условие ${sp.swCounted ? 'выполняется' : 'НЕ выполняется, требуется увеличить A_{sw}'}. Предельные моменты M_{X,ult} = ${f(g.MXult)} кН·м, M_{Y,ult} = ${f(g.MYult)} кН·м; коэффициент по формуле (8.96):`, { keepNext: true });
+        eq(`K_{sw} = ${k3(sp.Ksw)}.`);
+        children.push(conclusion(sp.Ksw));
+        P(['Проверка за границей зоны поперечного армирования (контур на расстоянии z_{w} + 0,5·h_{0} от граней сваи, Пособие к СП 52-101, п. 3.86): ', m(`K_{b} = ${k3(sp.KbOut)} ${sp.KbOut <= 1 ? '≤' : '>'} 1`), '.']);
+      }
     }
     sec += 1;
 
@@ -22301,7 +22343,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     });
   }
 
-  const VERSION = '2026-10-15.5';
+  const VERSION = '2026-10-15.6';
   return { VERSION, create, build, omml, injectMath, FONT };
 });
 
@@ -22311,7 +22353,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   'use strict';
   const C = window.RostverkCalc;
   // Страница и подключаемые файлы ядра должны быть одной версии: иначе часть расчёта не отобразится
-  const APP_VERSION = '2026-10-15.5';
+  const APP_VERSION = '2026-10-15.6';
   function banner(msg) {
     let el = document.getElementById('appBanner');
     if (!el) {
@@ -22805,16 +22847,10 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     // Расчётный контур СП 63 (определяющий)
     const v = r.sp63.governingIndex >= 0 ? r.sp63.variants[r.sp63.governingIndex] : null;
     if (v) {
-      const dd = v.d * 10, hb = r.bp / 2;
-      const spx = isNum(r.sp63.xc) ? r.sp63.xc : r.xc, spy = isNum(r.sp63.yc) ? r.sp63.yc : r.yc;
-      const xL = spx - hb - dd, xR = spx + hb + dd, yB = spy - hb - dd, yT = spy + hb + dd;
-      const pts = [
-        [[xL, yB], [xR, yB], [xR, yT], [xL, yT], [xL, yB]],
-        [[xR, 0], [xR, yT], [0, yT]],
-        [[0, yB], [xR, yB], [xR, yT], [0, yT]],
-        [[xL, 0], [xL, yT], [xR, yT], [xR, 0]],
-      ][r.sp63.governingIndex];
-      s += `<polyline points="${pts.map(([a, b]) => X(a) + ',' + Y(b)).join(' ')}" fill="none" stroke="var(--bad)" stroke-width="1.5" stroke-dasharray="3 3" ${nse}/>`;
+      // отрезки контура из расчёта (см), в координатах ростверка — мм
+      for (const [x1, y1, x2, y2] of v.segs) {
+        s += `<line x1="${X(x1 * 10)}" y1="${Y(y1 * 10)}" x2="${X(x2 * 10)}" y2="${Y(y2 * 10)}" stroke="var(--bad)" stroke-width="1.5" stroke-dasharray="3 3" ${nse}/>`;
+      }
     }
     // Оси
     const ax = -pad * 0.55, al = span * 0.16;
@@ -23015,6 +23051,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       );
     }
     let spInner = table(sv.map((v) => v.name), spRows, sp.governingIndex)
+      + (sp.beam ? '<p class="small"><b>Ни один контур не помещается в ростверк</b>: свая перекрывает его ширину, контур вырождается в линию поперёк ростверка. Ростверк здесь работает как балка — продавливание сваей не рассматривается, прочность проверяется по поперечной силе в наклонных сечениях (СП 63 пп. 8.1.32–8.1.33, блок «Поперечная сила и изгиб»).</p>' : '')
       + `<p class="small">Определяющий вариант контура: <b>${esc(sp.governing || '—')}</b>; направление допуска: ${esc(sp.shiftText || '')}${sb ? ` (K внутрь / к краям: ${fmtK(sb.spIn)} / ${fmtK(sb.spOut)})` : ''}.</p>`;
     if (p.useTransverse === true || p.useTransverse === 'Да') {
       const so = sp.outside;
