@@ -392,7 +392,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     pilePosition: 'Угловая',      // 'Угловая' | 'Крайняя'
     h: 600,                       // высота плиты ростверка, мм
     lEmb: 50,                     // заделка головы сваи, мм
-    a: 56,                        // до центра продольной арматуры, мм
+    a: 70,                        // до центра продольной арматуры, мм
     pileShape: 'Квадратная',      // 'Квадратная' | 'Круглая'
     pileSize: 300,                // сторона / диаметр, мм
     l: 1500,                      // размер ростверка по X, мм
@@ -405,12 +405,12 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     yPile: 250,                   // привязка оси сваи к краю Y=0, мм
     dX: null,                     // допуск смещения по X, мм (null — авто по СП 45)
     dY: null,                     // допуск смещения по Y, мм (null — авто)
-    shiftDir: 'Оба направления',  // 'Оба направления' (худшее) | 'Внутрь ростверка' | 'К краям ростверка'
+    shiftDir: 'Внутрь ростверка', // 'Оба направления' (худшее) | 'Внутрь ростверка' | 'К краям ростверка'
     minEdge: 100,                 // минимальный свес: от грани сваи до края ростверка, мм
     pileType: 'Висячие забивные или вдавливаемые', // | 'Сваи-стойки' | 'Буровые, набивные'
-    lanReduction: 0,              // снижение длины анкеровки по СП 63 п. 10.3.25 (0…0,3)
+    lanReduction: 0.3,            // снижение длины анкеровки по СП 63 п. 10.3.25 (0…0,3)
     concrete: 'В30',
-    gammaB1: 1,
+    gammaB1: 0.9,
     F1: 500,                      // нагрузка на угловую (крайнюю) сваю, кН
     MXpile: 0,                    // момент в голове сваи по X, кН·м
     MYpile: 0,                    // момент в голове сваи по Y, кН·м
@@ -1145,7 +1145,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     return { errors, warnings, result: errors.length ? null : r };
   }
 
-  const VERSION = '2026-10-15.3'; // должна совпадать с версией страницы и отчёта (index.html, report.js)
+  const VERSION = '2026-10-15.4'; // должна совпадать с версией страницы и отчёта (index.html, report.js)
   return { VERSION, compute, validate, DEFAULTS, CONCRETE, REBAR, BETA_TABLE, betaOf };
 });
 
@@ -22141,7 +22141,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     });
   }
 
-  const VERSION = '2026-10-15.3';
+  const VERSION = '2026-10-15.4';
   return { VERSION, create, build, omml, injectMath, FONT };
 });
 
@@ -22151,7 +22151,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   'use strict';
   const C = window.RostverkCalc;
   // Страница и подключаемые файлы ядра должны быть одной версии: иначе часть расчёта не отобразится
-  const APP_VERSION = '2026-10-15.3';
+  const APP_VERSION = '2026-10-15.4';
   function banner(msg) {
     let el = document.getElementById('appBanner');
     if (!el) {
