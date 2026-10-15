@@ -228,6 +228,16 @@ details.blk .body { padding: 0 16px 16px; display: flex; flex-direction: column;
 .results.is-blocked > section:not(#blocked):not(#warns):not(.notes) { display: none !important; }
 .blocked { padding: 16px 18px; border-left: 5px solid var(--bad); display: flex; flex-direction: column; gap: 10px; }
 .blocked h2 { color: var(--bad); font-size: 19px; }
+.fixes { padding: 12px 16px 14px; border-left: 5px solid var(--accent); display: flex; flex-direction: column; gap: 10px; }
+.fixes h3 { font-size: 14px; margin: 0; display: flex; gap: 10px; justify-content: space-between; align-items: baseline; }
+.fixes h3 .num { color: var(--bad); white-space: nowrap; }
+.fixes ul { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.fixes li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; align-items: center; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; font-size: 13px; }
+.fixes li .kind { display: inline-block; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; margin-right: 6px; }
+.fixes li .res { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; }
+.fixes li .res b.ok { color: var(--ok); font-weight: 600; }
+.fixes .fix-all { background: var(--ok-bg); border-radius: 8px; padding: 8px 10px; }
+.fixes .undo { display: flex; gap: 8px; align-items: center; font-size: 13px; }
 .warns { padding: 12px 16px 14px; border-left: 5px solid var(--warn); display: flex; flex-direction: column; gap: 8px; }
 .warns h3 { color: var(--warn); }
 .issue-list { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; max-width: 80ch; }
@@ -279,6 +289,7 @@ dialog.issues .toolbar { margin-top: 16px; justify-content: flex-end; }
       <section class="panel warns" id="warns" hidden></section>
       <section class="panel verdict" id="verdict"></section>
       <section class="panel"><table class="checks" id="checks"></table></section>
+      <section class="panel fixes" id="fixes" hidden></section>
       <section class="panel sec">
         <div class="sec-head"><h2>Схема ростверка</h2><span class="note" id="planCap"></span></div>
         <div class="plan-box" id="plan"></div>
@@ -980,7 +991,8 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
       verdict: r.edgeDesign < 0 ? 'НЕ выполнено: свая за краем ростверка' : r.edgeDesign >= minEdge ? 'Выполнено' : 'НЕ выполнено',
       pass: r.edgeDesign >= minEdge,
     };
-    const overall = summary.every((s) => s.pass !== false)
+    // Продавливание сваей по СП 63: достаточно, чтобы прошла проверка по бетону ИЛИ с поперечной арматурой
+    const overall = summary.filter((s) => s.key !== 'sp63' && s.key !== 'sp63sw').every((s) => s.pass !== false)
       && (ok(Kb) || (useSw && swCounted && ok(Ksw) && ok(KbOut)));
     r.summary = summary;
     r.edgeCheck = edgeCheck;
@@ -992,6 +1004,154 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     const round = p.pileShape === 'Круглая';
     r.caption = `Ростверк ${p.l}×${p.b}, h = ${p.h} мм; колонна ${p.bcol}×${p.hcol}; свай: ${r.n} шт., ${round ? 'd' : 'b'} = ${p.pileSize} мм`;
     return r;
+  }
+
+  // ---------- Подбор: как обеспечить прочность ----------
+  // Для каждой непрошедшей проверки перебираются отдельные параметры (остальные не меняются) и находится
+  // наименьшее изменение, при котором проверка проходит. Отдельно — одно изменение, при котором проходит всё.
+  const BAR_D = [10, 12, 14, 16, 18, 20, 22, 25, 28, 32, 36, 40];
+  function suggest(userInput) {
+    const base = Object.assign({}, DEFAULTS, userInput || {});
+    const cache = new Map();
+    const run = (patch) => {
+      const key = JSON.stringify(patch);
+      if (!cache.has(key)) {
+        let res = null;
+        try { const v = validate({ ...base, ...patch }); res = v.errors.length ? null : v.result; } catch (e) { res = null; }
+        cache.set(key, res);
+      }
+      return cache.get(key);
+    };
+    const r0 = run({});
+    if (!r0) return null;
+    const failing = r0.summary.filter((s) => s.pass === false);
+    if (!failing.length) return { items: [], all: [] };
+    const corner = base.pilePosition === 'Угловая';
+    const f = fmtN;
+    const asText = (n, d) => `${n} Ø${d} (As = ${f(n * Math.PI * d * d / 400)} см²)`;
+
+    // Генераторы вариантов: последовательности изменений по возрастанию «стоимости»
+    const gens = {
+      h: () => { const out = []; for (let dh = 50; dh <= 1500; dh += 50) out.push({ label: `Толщина ростверка h = ${f(base.h + dh)} мм (+${dh} мм)`, patch: { h: base.h + dh } }); return out; },
+      concrete: () => { const ks = Object.keys(CONCRETE); return ks.slice(ks.indexOf(base.concrete) + 1).map((c) => ({ label: `Бетон ${c} (сейчас ${base.concrete})`, patch: { concrete: c } })); },
+      overhang: () => {
+        const out = [];
+        for (let d = 50; d <= 1000; d += 50) {
+          const dx = corner ? d : 0;
+          const patch = {
+            l: base.l + 2 * dx, b: base.b + 2 * d, xPile: base.xPile + dx, yPile: base.yPile + d,
+            piles: (base.piles || []).map((q) => ({ ...q, x: q.x + dx, y: q.y + d })),
+          };
+          out.push({ label: `Свес у сваи больше на ${d} мм: ростверк ${f(patch.l)}×${f(patch.b)} мм (расстояния между сваями и колонной те же)`, patch });
+        }
+        return out;
+      },
+      colsize: () => { const out = []; for (let d = 50; d <= 600; d += 50) out.push({ label: `Сечение колонны (подколонника) ${f(base.bcol + d)}×${f(base.hcol + d)} мм`, patch: { bcol: base.bcol + d, hcol: base.hcol + d } }); return out; },
+      plate: () => { if (base.colJoint !== 'Стальная колонна (опорная плита базы)') return []; const out = []; for (let d = 50; d <= 800; d += 50) out.push({ label: `Опорная плита базы ${f(base.bpl + d)}×${f(base.hpl + d)} мм`, patch: { bpl: base.bpl + d, hpl: base.hpl + d } }); return out; },
+      lan: () => ((base.lanReduction || 0) < 0.3 ? [{ label: 'Снизить длину анкеровки на 30 % — лапки, обжатие бетона реакцией сваи (СП 63 п. 10.3.25)', patch: { lanReduction: 0.3 } }] : []),
+      transverse: () => {
+        const out = [];
+        const yes = base.useTransverse === true || base.useTransverse === 'Да';
+        for (const d of [8, 10, 12, 14, 16]) {
+          if (yes && d <= base.dsw) continue;
+          out.push({ label: `Поперечная арматура в зоне продавливания ${base.swClass} Ø${d}, шаг ${f(base.sw)} мм, рядов ${base.nr}`, patch: { useTransverse: true, dsw: d } });
+        }
+        return out;
+      },
+      bars: () => {
+        // направления, в которых не проходит изгиб/анкеровка
+        const bad = (ax) => r0.sections.some((q) => q.name.includes(ax) && (q.Kbend > 1 || q.KMs > 1 || q.anchorP.K > 1));
+        const dirs = ['X', 'Y'].filter(bad);
+        if (!dirs.length) return [];
+        const out = [];
+        const nMax = (w) => Math.floor((w - 100) / 100) + 1; // шаг стержней не менее 100 мм
+        // больше стержней того же диаметра
+        const n0 = { X: base.nx, Y: base.ny }, d0 = { X: base.dsx, Y: base.dsy }, w = { X: base.b, Y: base.l };
+        for (let k = 1; k <= 40; k++) {
+          const patch = {}, txt = [];
+          let ok = true;
+          for (const ax of dirs) {
+            const n = n0[ax] + k;
+            if (n > nMax(w[ax])) ok = false;
+            patch[ax === 'X' ? 'nx' : 'ny'] = n; txt.push(`вдоль ${ax}: ${asText(n, d0[ax])}`);
+          }
+          if (!ok) break;
+          out.push({ label: `Нижняя сетка ${txt.join('; ')}`, patch });
+        }
+        // больший диаметр при том же числе стержней
+        for (const d of BAR_D) {
+          if (dirs.some((ax) => d <= d0[ax])) continue;
+          const patch = {}, txt = [];
+          for (const ax of dirs) { patch[ax === 'X' ? 'dsx' : 'dsy'] = d; txt.push(`вдоль ${ax}: ${asText(n0[ax], d)}`); }
+          out.push({ label: `Нижняя сетка ${txt.join('; ')}`, patch });
+        }
+        return out;
+      },
+      rebarClass: () => { const ks = ['А400', 'А500']; return ks.filter((c) => REBAR[c].Rs > REBAR[base.rebarClass].Rs).map((c) => ({ label: `Арматура класса ${c} (сейчас ${base.rebarClass})`, patch: { rebarClass: c } })); },
+    };
+    const PLAN = {
+      column: ['h', 'concrete', 'colsize'], colsp63: ['h', 'concrete', 'colsize'],
+      corner: ['h', 'concrete', 'overhang'], sp63: ['h', 'concrete', 'overhang', 'transverse'],
+      sp63sw: ['h', 'concrete', 'transverse'], allcorners: ['h', 'concrete', 'overhang', 'transverse'],
+      strip: ['h', 'concrete'], shear: ['h', 'concrete'],
+      bend: ['bars', 'h', 'rebarClass'], anchor: ['lan', 'bars', 'overhang', 'h'],
+      localcol: ['concrete', 'plate'], localpile: ['concrete', 'overhang'],
+    };
+    const NAMES = { h: 'Толщина', concrete: 'Бетон', overhang: 'Габариты (свес)', colsize: 'Колонна', plate: 'Плита базы', lan: 'Анкеровка', transverse: 'Поперечная арматура', bars: 'Армирование', rebarClass: 'Класс арматуры' };
+    const passes = (r, key) => {
+      const s = r.summary.find((q) => q.key === key);
+      if (key === 'sp63') { const sw = r.summary.find((q) => q.key === 'sp63sw'); if (sw && sw.pass === true) return true; }
+      return !s || s.pass !== false;
+    };
+    const describe = (r, key, opt, g) => {
+      const s = r.summary.find((q) => q.key === key);
+      const sw = key === 'sp63' && g === 'transverse' ? r.summary.find((q) => q.key === 'sp63sw') : null;
+      return {
+        kind: NAMES[g], label: opt.label, patch: opt.patch, K: sw ? sw.K : s ? s.K : null, allPass: r.overall,
+        still: r.overall ? [] : r.summary.filter((q) => q.pass === false && !(q.key === 'sp63' && passes(r, 'sp63'))).map((q) => q.title),
+      };
+    };
+    const items = failing.map((s) => {
+      const options = [];
+      for (const g of PLAN[s.key] || []) {
+        for (const opt of gens[g]()) {
+          const r = run(opt.patch);
+          if (r && passes(r, s.key)) { options.push(describe(r, s.key, opt, g)); break; }
+        }
+      }
+      return { key: s.key, title: s.title, K: s.K, options };
+    });
+    // Одно изменение — проходят все проверки
+    const all = [];
+    for (const g of ['h', 'concrete', 'overhang', 'bars', 'transverse']) {
+      for (const opt of gens[g]()) {
+        const r = run(opt.patch);
+        if (r && r.overall) { all.push({ kind: NAMES[g], label: opt.label, patch: opt.patch }); break; }
+      }
+    }
+    // Если одним изменением не обойтись — пары: толщина + бетон, толщина + армирование
+    if (!all.length) {
+      const hs = gens.h();
+      for (const c of gens.concrete()) {
+        const hit = hs.find((o) => { const r = run({ ...o.patch, ...c.patch }); return r && r.overall; });
+        if (hit) { all.push({ kind: 'Толщина и бетон', label: `${hit.label} и ${c.label[0].toLowerCase()}${c.label.slice(1)}`, patch: { ...hit.patch, ...c.patch } }); break; }
+      }
+      const wMax = (w) => Math.floor((w - 100) / 100) + 1;
+      outer: for (const o of hs) {
+        for (let k = 0; k <= 30; k++) {
+          const nx = base.nx + k, ny = base.ny + k;
+          if (nx > wMax(base.b) || ny > wMax(base.l)) break;
+          const patch = { ...o.patch, nx, ny };
+          const r = run(patch);
+          if (r && r.overall) {
+            all.push({ kind: 'Толщина и армирование', label: `${o.label} и нижняя сетка вдоль X: ${asText(nx, base.dsx)}; вдоль Y: ${asText(ny, base.dsy)}`, patch });
+            break outer;
+          }
+          if (!r || r.summary.some((q) => q.pass === false && q.key !== 'bend' && q.key !== 'anchor' && !(q.key === 'sp63' && passes(r, 'sp63')))) break; // армирование здесь не поможет
+        }
+      }
+    }
+    return { items, all, runs: cache.size };
   }
 
   // ---------- Проверка исходных данных ----------
@@ -1145,8 +1305,8 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     return { errors, warnings, result: errors.length ? null : r };
   }
 
-  const VERSION = '2026-10-15.4'; // должна совпадать с версией страницы и отчёта (index.html, report.js)
-  return { VERSION, compute, validate, DEFAULTS, CONCRETE, REBAR, BETA_TABLE, betaOf };
+  const VERSION = '2026-10-15.5'; // должна совпадать с версией страницы и отчёта (index.html, report.js)
+  return { VERSION, compute, validate, suggest, DEFAULTS, CONCRETE, REBAR, BETA_TABLE, betaOf };
 });
 
 </script>
@@ -22141,7 +22301,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     });
   }
 
-  const VERSION = '2026-10-15.4';
+  const VERSION = '2026-10-15.5';
   return { VERSION, create, build, omml, injectMath, FONT };
 });
 
@@ -22151,7 +22311,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   'use strict';
   const C = window.RostverkCalc;
   // Страница и подключаемые файлы ядра должны быть одной версии: иначе часть расчёта не отобразится
-  const APP_VERSION = '2026-10-15.4';
+  const APP_VERSION = '2026-10-15.5';
   function banner(msg) {
     let el = document.getElementById('appBanner');
     if (!el) {
@@ -22330,6 +22490,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     const el = e.target;
     const k = el.dataset.k;
     if (!k) return;
+    lastApplied = null; // ручная правка — отменять подобранное изменение больше нечего
     const f = FIELDS.find((q) => q.k === k);
     if (f.text) {
       state[k] = el.value;
@@ -22374,6 +22535,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     const el = e.target;
     if (!el.dataset || !el.dataset.p) return;
     e.stopPropagation();
+    lastApplied = null;
     const i = +el.closest('tr').dataset.i;
     const raw = el.value.trim();
     if (el.dataset.p === 'F') state.piles[i].F = raw === '' ? null : +raw;
@@ -22418,6 +22580,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       lastResult = null;
       res.classList.add('is-blocked');
       renderBlocked(v.errors);
+      $('fixes').hidden = true;
       $('wordBtn').disabled = true;
       $('wordBtn').title = 'Расчёт не выполнен — исправьте исходные данные';
       $('pileBody').querySelectorAll('[data-c]').forEach((td) => { td.textContent = '—'; });
@@ -22434,6 +22597,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     for (const [name, fn] of [['вывод', renderVerdict], ['сводка', renderChecks], ['схема', renderPlan], ['расчётные схемы', renderSchemes], ['подробный расчёт', renderDetails]]) {
       try { fn(r); } catch (err) { banner(`Ошибка отображения (${name}): ${err.message}. Сообщите автору, приложив снимок экрана.`); }
     }
+    scheduleFixes(r);
     // Подстановки в форму
     for (const f of FIELDS) if (f.autoFrom) fillAuto(f, r);
     const rows = $('pileBody').querySelectorAll('tr');
@@ -22489,6 +22653,56 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   });
   document.addEventListener('click', (e) => {
     if (e.target.closest && (e.target.closest('[data-del]') || e.target.id === 'addPile')) setTimeout(maybeShowBlockDialog, 0);
+  });
+
+  // ---------- Как обеспечить прочность: подбор изменений для непрошедших проверок ----------
+  let fixTimer = null, fixData = null, lastApplied = null;
+  function scheduleFixes(r) {
+    clearTimeout(fixTimer);
+    if (r.overall && !lastApplied) { $('fixes').hidden = true; return; }
+    fixTimer = setTimeout(() => {
+      try { fixData = C.suggest(state); } catch (err) { fixData = null; banner('Ошибка подбора вариантов: ' + err.message); }
+      renderFixes(r);
+    }, 250);
+  }
+  function renderFixes(r) {
+    const el = $('fixes');
+    const undo = lastApplied ? `<div class="undo">Применено: ${esc(lastApplied.label)} <button class="btn small" type="button" data-undo="1">Отменить</button></div>` : '';
+    if (!fixData || !fixData.items.length) {
+      el.hidden = !undo;
+      el.innerHTML = undo ? `<h2>Как обеспечить прочность</h2>${undo}<p class="small">${r.overall ? 'Все проверки выполнены.' : ''}</p>` : '';
+      return;
+    }
+    const kTxt = (k) => (isNum(k) ? `K = ${fmtK(k)}` : '');
+    const opt = (o, id) => `<li><div><span class="kind">${esc(o.kind)}</span>${esc(o.label)}
+        <span class="res">${o.K !== undefined ? esc(kTxt(o.K)) + ' — ' : ''}${o.allPass ? '<b class="ok">проходят все проверки</b>' : o.still && o.still.length ? 'ещё не проходят: ' + esc(o.still.map((t) => { const x = t.split(' (')[0]; return x[0].toLowerCase() + x.slice(1); }).join('; ')) : ''}</span></div>
+        <button class="btn small" type="button" data-fix="${id}">Применить</button></li>`;
+    const all = fixData.all.length
+      ? `<div class="fix-all"><h3>Чтобы прошли все проверки сразу</h3><ul>${fixData.all.map((o, j) => opt({ ...o, allPass: true, K: undefined }, 'a' + j)).join('')}</ul></div>` : '';
+    const items = fixData.items.map((it, i) => `<div><h3><span>${esc(it.title)}</span><span class="num">${esc(kTxt(it.K))}</span></h3>${
+      it.options.length ? `<ul>${it.options.map((o, j) => opt(o, i + '-' + j)).join('')}</ul>`
+        : '<p class="small">Изменением одного параметра в разумных пределах проверку обеспечить не удаётся — нужно менять несколько параметров сразу (например, толщину и класс бетона) или конструктивное решение.</p>'}</div>`).join('');
+    el.innerHTML = `<h2>Как обеспечить прочность</h2>${undo}
+      <p class="small">Для каждой непрошедшей проверки найдено наименьшее изменение одного параметра при неизменных остальных; K — коэффициент этой проверки после изменения. «Применить» вносит изменение в исходные данные (его можно отменить).</p>${all}${items}`;
+    el.hidden = false;
+  }
+  $('fixes').addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    if (b.dataset.undo) {
+      if (!lastApplied) return;
+      state = lastApplied.prev; lastApplied = null;
+      fillForm(); update(); setStatus('Изменение отменено.');
+      return;
+    }
+    if (!b.dataset.fix || !fixData) return;
+    const id = b.dataset.fix;
+    const o = id[0] === 'a' ? fixData.all[+id.slice(1)] : fixData.items[+id.split('-')[0]].options[+id.split('-')[1]];
+    if (!o) return;
+    lastApplied = { label: o.label, prev: clone(state) };
+    Object.assign(state, clone(o.patch));
+    fillForm(); update();
+    $('fixes').scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
 
   function renderVerdict(r) {
@@ -22943,7 +23157,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     update();
     setStatus(`F1 = ${fmt(state.F1, 1)} кН — реакция сваи из таблицы.`);
   });
-  $('resetBtn').addEventListener('click', () => { state = Object.assign(clone(C.DEFAULTS), { reportName: state.reportName || '' }); fillForm(); update(); setStatus('Восстановлен пример из шаблона.'); });
+  $('resetBtn').addEventListener('click', () => { lastApplied = null; state = Object.assign(clone(C.DEFAULTS), { reportName: state.reportName || '' }); fillForm(); update(); setStatus('Восстановлен пример из шаблона.'); });
 
   // Импорт исходных данных из Excel-шаблона (лист «Продавливание_угловой_сваей»)
   $('xlsxFile').addEventListener('change', async (e) => {
