@@ -223,11 +223,18 @@ details.blk .body { padding: 0 16px 16px; display: flex; flex-direction: column;
 .sd-axis { stroke: var(--muted); stroke-width: 0.7; stroke-dasharray: 12 3 2 3; }
 .sd-hatch { stroke: var(--col); stroke-width: 1; }
 .sd-edge { stroke: var(--accent); stroke-width: 3; }
+.sd-bar { stroke: var(--ink); stroke-width: 1.3; }
+.sd-bar2 { stroke: var(--accent); stroke-width: 1.3; }
+.sd-pile-o { fill: var(--pile); stroke: var(--slab-line); stroke-width: 0.8; stroke-dasharray: 3 2; }
+.sd-col-o { fill: none; stroke: var(--col); stroke-width: 1; stroke-dasharray: 5 3; }
+.sd-pos { fill: var(--surface); stroke: var(--ink); stroke-width: 1; }
 .sd-t { font-family: var(--font-mono); font-size: 10px; fill: var(--ink); }
 .sd-h { font-family: var(--font-display); font-size: 12px; font-weight: 600; fill: var(--muted); letter-spacing: 0.04em; }
 .results.is-blocked > section:not(#blocked):not(#warns):not(.notes) { display: none !important; }
 .blocked { padding: 16px 18px; border-left: 5px solid var(--bad); display: flex; flex-direction: column; gap: 10px; }
 .blocked h2 { color: var(--bad); font-size: 19px; }
+.mesh-panel { padding: 0; }
+.mesh-panel .scheme svg { max-width: 640px; }
 .fixes { padding: 12px 16px 14px; border-left: 5px solid var(--accent); display: flex; flex-direction: column; gap: 10px; }
 .fixes h3 { font-size: 14px; margin: 0; display: flex; gap: 10px; justify-content: space-between; align-items: baseline; }
 .fixes h3 .num { color: var(--bad); white-space: nowrap; }
@@ -301,6 +308,11 @@ dialog.issues .toolbar { margin-top: 16px; justify-content: flex-end; }
           <figure class="scheme" style="margin:0"><h3>Продавливание колонной</h3><div id="schemeCol"></div><p id="schemeColCap"></p></figure>
           <figure class="scheme" style="margin:0"><h3>Продавливание угловой сваей</h3><div id="schemeCor"></div><p id="schemeCorCap"></p></figure>
         </div>
+      </section>
+      <section class="panel mesh-panel">
+        <details class="blk" data-id="mesh" id="meshBlk"><summary><h3>Нижняя сетка — раскладка стержней</h3><span class="num small" id="meshSum"></span></summary>
+          <div class="body"><figure class="scheme" style="margin:0"><div id="schemeMesh"></div><p id="schemeMeshCap" class="small"></p></figure></div>
+        </details>
       </section>
       <section class="panel" id="details"></section>
       <section class="panel notes">
@@ -896,6 +908,25 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     return { N, bx, by, cx, cy, Abloc, Abmax, phiRaw, phi, Rbloc, psi, Nult, K: N / Nult };
   }
 
+  // Раскладка нижней сетки: стержни вдоль X (nx шт. по ширине b) и вдоль Y (ny шт. по длине l);
+  // оси крайних стержней — на расстоянии «защитный слой + d/2» от граней ростверка.
+  // Шаг — СП 63 п. 10.3.8 (не более 1,5h и 400 мм), расстояние в свету — п. 10.3.5 (не менее d и 25 мм).
+  function meshLayout(p) {
+    const one = (n, d, across, along) => {
+      const c = p.cover + d / 2;
+      const s = n > 1 ? (across - 2 * c) / (n - 1) : NaN;
+      const sMax = Math.min(1.5 * p.h, 400), clearMin = Math.max(d, 25);
+      const len = along - 2 * p.cover;
+      return {
+        n, d, c, s, sMax, clear: s - d, clearMin, len, across, along,
+        massPerM: 0.00617 * d * d, mass: n * len / 1000 * 0.00617 * d * d,
+        okMax: !(s > sMax + 1e-9), okClear: !(s - d < clearMin - 1e-9),
+        pos: Array.from({ length: n }, (_, i) => (n > 1 ? c + i * s : across / 2)),
+      };
+    };
+    return { x: one(p.nx, p.dsx, p.b, p.l), y: one(p.ny, p.dsy, p.l, p.b), cls: p.rebarClass };
+  }
+
   function computeLocal(p, r) {
     const res = { column: null, pile: null };
     const joint = p.colJoint === 'Монолитная или стальная колонна' ? 'Монолитная колонна' : p.colJoint;
@@ -940,6 +971,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     const r = computeShifted(p);
     r.input = p;
     r.local = computeLocal(p, r);
+    r.mesh = meshLayout(p);
     const corner = p.pilePosition === 'Угловая';
     const yes = (v) => v === true || v === 'Да';
     const useSw = yes(p.useTransverse);
@@ -1305,6 +1337,11 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 
     // 5. Проверяемая свая (по расчёту, с учётом допуска на смещение)
     const r = compute(p);
+    for (const [ax, m] of [['X', r.mesh.x], ['Y', r.mesh.y]]) {
+      const f = ax === 'X' ? ['nx', 'dsx'] : ['ny', 'dsy'];
+      if (!m.okMax) warn('mesh-max-' + ax, `Шаг стержней сетки вдоль ${ax} больше допустимого`, `${m.n} Ø${fmtN(m.d)}: шаг ${fmtN(m.s)} мм > ${fmtN(m.sMax)} мм (не более 1,5h и 400 мм — СП 63.13330.2018 п. 10.3.8). Увеличьте число стержней.`, f);
+      if (!m.okClear) warn('mesh-clear-' + ax, `Стержни сетки вдоль ${ax} расположены слишком часто`, `${m.n} Ø${fmtN(m.d)}: расстояние в свету ${fmtN(m.clear)} мм < ${fmtN(m.clearMin)} мм (не менее диаметра и 25 мм — СП 63.13330.2018 п. 10.3.5). Уменьшите число стержней или примите больший диаметр.`, f);
+    }
     if (r.edgeDesign < 0) {
       err('chk-out', 'Проверяемая свая выходит за край ростверка', `Грань сваи за краем на ${fmtN(-r.edgeDesign)} мм.`, ['xPile', 'yPile']);
     } else if (r.edgeDesign < minEdge) {
@@ -1343,7 +1380,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     return { errors, warnings, result: errors.length ? null : r };
   }
 
-  const VERSION = '2026-10-15.6'; // должна совпадать с версией страницы и отчёта (index.html, report.js)
+  const VERSION = '2026-10-17.1'; // должна совпадать с версией страницы и отчёта (index.html, report.js)
   return { VERSION, compute, validate, suggest, DEFAULTS, CONCRETE, REBAR, BETA_TABLE, betaOf };
 });
 
@@ -1605,8 +1642,53 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     return { svg: s.out(planBot + 70, 'hatch-cor', 'Схема продавливания угловой сваей: разрез и план'), caption };
   }
 
+  // План нижней сетки: раскладка стержней вдоль X и вдоль Y, сваи и колонна — для ориентира
+  function meshScheme(r) {
+    const p = r.input, m = r.mesh;
+    if (!m || !(m.x.n > 0) || !(m.y.n > 0)) return null;
+    const left = 64, right = 34, top = 50;
+    const k = Math.min((W - left - right) / p.l, 280 / p.b);
+    const X = (x) => left + x * k, Y = (y) => top + (p.b - y) * k; // Y — вверх
+    const s = Svg();
+    s.text(W / 2, 12, 'План нижней сетки', { cls: 'sd-h' });
+    s.rect(X(0), Y(p.b), X(p.l), Y(0), 'sd-main sd-fill');
+    // Сваи и колонна
+    const round = p.pileShape === 'Круглая', d = p.pileSize;
+    for (const q of r.pileRows) {
+      if (round) s.add(`<circle cx="${X(q.x)}" cy="${Y(q.y)}" r="${d / 2 * k}" class="sd-pile-o"/>`);
+      else s.rect(X(q.x - d / 2), Y(q.y - d / 2), X(q.x + d / 2), Y(q.y + d / 2), 'sd-pile-o');
+    }
+    s.rect(X(r.xcol - p.bcol / 2), Y(r.ycol - p.hcol / 2), X(r.xcol + p.bcol / 2), Y(r.ycol + p.hcol / 2), 'sd-col-o');
+    // Стержни: поз. 1 — вдоль X (по ширине b), поз. 2 — вдоль Y (по длине l)
+    const x0 = p.cover, x1 = p.l - p.cover, y0 = p.cover, y1 = p.b - p.cover;
+    for (const y of m.x.pos) s.line(X(x0), Y(y), X(x1), Y(y), 'sd-bar');
+    for (const x of m.y.pos) s.line(X(x), Y(y0), X(x), Y(y1), 'sd-bar2');
+    // Позиции
+    const mark = (cx, cy, t) => { s.add(`<circle cx="${cx}" cy="${cy}" r="7.5" class="sd-pos"/>`); s.text(cx, cy + 3.5, t, { cls: 'sd-t' }); };
+    const yMid = m.x.pos[Math.floor((m.x.n - 1) / 2)], xMid = m.y.pos[Math.floor((m.y.n - 1) / 2)];
+    s.line(X(x1), Y(yMid), X(p.l) + 12, Y(yMid), 'sd-ext'); mark(X(p.l) + 20, Y(yMid), '1');
+    s.line(X(xMid), Y(y1), X(xMid), Y(p.b) - 12, 'sd-ext'); mark(X(xMid), Y(p.b) - 20, '2');
+    // Размеры: габариты и привязка/шаг первых стержней
+    const yB = Y(0);
+    const chainY = [0, m.y.pos[0]].concat(m.y.n > 1 ? [m.y.pos[1]] : []);
+    s.chainH(chainY.map(X), [num(m.y.c), num(m.y.s)], yB + 16, yB);
+    s.dimH(X(0), X(p.l), yB + 36, `l = ${num(p.l)}`, yB);
+    const chainX = [0, m.x.pos[0]].concat(m.x.n > 1 ? [m.x.pos[1]] : []);
+    s.chainV(chainX.map(Y), [num(m.x.c), num(m.x.s)], left - 16, X(0));
+    s.dimV(Y(0), Y(p.b), left - 40, `b = ${num(p.b)}`, X(0));
+    // Спецификация
+    const f1 = (v) => String(Math.round(v * 10) / 10).replace('.', ',');
+    const line = (t, mm) => `${t} — ${mm.n} Ø${mm.d} ${m.cls}, l = ${num(mm.len)}, шаг ${num(mm.s)}${mm.okMax && mm.okClear ? '' : ' (!)'}, ${f1(mm.mass)} кг`;
+    const ly = yB + 58;
+    s.text(left, ly, line('1 — вдоль X', m.x), { cls: 'sd-t', anchor: 'start' });
+    s.text(left, ly + 14, line('2 — вдоль Y', m.y), { cls: 'sd-t', anchor: 'start' });
+    const H = ly + 24;
+    const caption = `Раскладка нижней сетки: поз. 1 — ${m.x.n} Ø${m.x.d} ${m.cls} вдоль X с шагом ${num(m.x.s)} мм, поз. 2 — ${m.y.n} Ø${m.y.d} ${m.cls} вдоль Y с шагом ${num(m.y.s)} мм; оси крайних стержней — в ${num(m.x.c)} мм от граней (защитный слой ${num(p.cover)} мм + d/2). Масса ≈ ${f1(m.x.mass + m.y.mass)} кг. Шаг не более ${num(m.x.sMax)} мм (СП 63 п. 10.3.8), в свету не менее d и 25 мм (п. 10.3.5).`;
+    return { svg: s.out(H, 'hm', 'План нижней сетки ростверка'), caption };
+  }
+
   function render(r) {
-    return { column: columnScheme(r), corner: cornerScheme(r) };
+    return { column: columnScheme(r), corner: cornerScheme(r), mesh: meshScheme(r) };
   }
 
   return { render };
@@ -22046,6 +22128,12 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     P(['где центр тяжести свайного поля x̄ = ', `${f(r.xbar)} мм, ȳ = ${f(r.ybar)} мм; моменты относительно центра тяжести свай с учётом смещения колонны `,
       m(`M_{x,tot} = M_{x} + N·(x_{col} − x̄) = ${f(r.MxTot)} кН·м`), ', ', m(`M_{y,tot} = ${f(r.MyTot)} кН·м`), '.']);
     image(o.images && o.images.plan, 'Схема ростверка (начало координат — угол у проверяемой сваи)', 400);
+    const ms = r.mesh;
+    if (ms) {
+      const mline = (pos, ax, q) => `поз. ${pos} — ${q.n} Ø${q.d} ${ms.cls} вдоль ${ax}, длина ${f(q.len, 0)} мм, шаг ${f(q.s, 0)} мм`;
+      P(`Нижняя сетка: ${mline(1, 'X', ms.x)}; ${mline(2, 'Y', ms.y)}. Оси крайних стержней — в ${f(ms.x.c, 0)} мм от граней ростверка. Шаг стержней не более 1,5h и 400 мм (СП 63.13330.2018 п. 10.3.8) — ${ms.x.okMax && ms.y.okMax ? 'выполнено' : 'НЕ выполнено'}; расстояние в свету не менее d и 25 мм (п. 10.3.5) — ${ms.x.okClear && ms.y.okClear ? 'выполнено' : 'НЕ выполнено'}.`, { keepNext: true });
+      image(o.images && o.images.mesh, 'Раскладка нижней сетки ростверка', 400);
+    }
 
     // ---------- 3. Расчётные характеристики ----------
     children.push(heading('3. Расчётные характеристики и размеры'));
@@ -22343,7 +22431,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     });
   }
 
-  const VERSION = '2026-10-15.6';
+  const VERSION = '2026-10-17.1';
   return { VERSION, create, build, omml, injectMath, FONT };
 });
 
@@ -22353,7 +22441,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   'use strict';
   const C = window.RostverkCalc;
   // Страница и подключаемые файлы ядра должны быть одной версии: иначе часть расчёта не отобразится
-  const APP_VERSION = '2026-10-15.6';
+  const APP_VERSION = '2026-10-17.1';
   function banner(msg) {
     let el = document.getElementById('appBanner');
     if (!el) {
@@ -22791,6 +22879,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     const d = sum.parentElement;
     d.open = !d.open;
   });
+  // Схема сетки — сворачиваемый блок вне раздела подробностей, раскрывается так же (средствами страницы)
+  $('meshBlk').querySelector('summary').addEventListener('click', (e) => { e.preventDefault(); $('meshBlk').open = !$('meshBlk').open; });
   // Строка сводки → блок подробного расчёта
   const BLOCK_OF = { column: 'col', colsp63: 'colsp63', corner: 'corner', sp63: 'sp63', sp63sw: 'sp63', allcorners: 'allc',
     strip: 'sec', shear: 'sec', bend: 'sec', anchor: 'sec', localcol: 'local', localpile: 'local' };
@@ -22878,6 +22968,13 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   function renderSchemes(r) {
     let sc;
     try { sc = window.RostverkSchemes.render(r); } catch (e) { $('schemeCol').innerHTML = `<div class="empty">Схему не удалось построить: ${esc(e.message)}</div>`; return; }
+    if (sc.mesh) {
+      $('schemeMesh').innerHTML = sc.mesh.svg;
+      $('schemeMeshCap').textContent = sc.mesh.caption;
+      const m = r.mesh, bad = !(m.x.okMax && m.x.okClear && m.y.okMax && m.y.okClear);
+      $('meshSum').textContent = `${m.x.n}Ø${m.x.d} + ${m.y.n}Ø${m.y.d}${bad ? ' — шаг!' : ''}`;
+      $('meshSum').style.color = bad ? 'var(--bad)' : '';
+    }
     $('schemeCol').innerHTML = sc.column.svg;
     $('schemeColCap').textContent = sc.column.caption;
     if (sc.corner) {
@@ -23348,15 +23445,16 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     const btn = $('wordBtn');
     btn.disabled = true; setStatus('Формирую отчёт…');
     try {
-      const [plan, column, corner] = await Promise.all([
+      const [plan, column, corner, mesh] = await Promise.all([
         svgToPng(document.querySelector('#plan svg'), 420),
         svgToPng(document.querySelector('#schemeCol svg'), 330),
         svgToPng(document.querySelector('#schemeCor svg'), 330),
+        svgToPng(document.querySelector('#schemeMesh svg'), 400),
       ]);
       const notes = [...document.querySelectorAll('.notes li')].map((li) => li.textContent.trim());
       const name = (state.reportName || '').trim();
       const blob = await window.RostverkReport.create(window.docx, window.JSZip, lastResult,
-        { name, inputGroups: inputGroupsForReport(), images: { plan, column, corner }, notes, warnings: lastIssues.warnings }, 'blob');
+        { name, inputGroups: inputGroupsForReport(), images: { plan, column, corner, mesh }, notes, warnings: lastIssues.warnings }, 'blob');
       const safe = (name || 'ростверк').replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, '_').slice(0, 60);
       await saveFile(`Расчет_продавливания_${safe}.docx`, blob);
     } catch (e) {
