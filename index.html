@@ -234,6 +234,8 @@ details.blk .body { padding: 0 16px 16px; display: flex; flex-direction: column;
 .sd-pile-o { fill: var(--pile); stroke: var(--slab-line); stroke-width: 0.8; stroke-dasharray: 3 2; }
 .sd-col-o { fill: none; stroke: var(--col); stroke-width: 1; stroke-dasharray: 5 3; }
 .sd-pos { fill: var(--surface); stroke: var(--ink); stroke-width: 1; }
+.sd-dot { fill: var(--ink); }
+.sd-lead { stroke: var(--ink); stroke-width: 0.9; }
 .sd-t { font-family: var(--font-mono); font-size: 10px; fill: var(--ink); }
 .sd-h { font-family: var(--font-display); font-size: 12px; font-weight: 600; fill: var(--muted); letter-spacing: 0.04em; }
 .results.is-blocked > section:not(#blocked):not(#warns):not(.notes) { display: none !important; }
@@ -460,6 +462,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     ny: 10,
     e0: 100,
     cover: 50,
+    meshEdge: null,               // от грани ростверка до оси крайнего стержня сетки, мм (пусто — защитный слой + d/2)
     hook: 0,
     eta1: 2.5,
     N: 2000,
@@ -918,8 +921,10 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
   // оси крайних стержней — на расстоянии «защитный слой + d/2» от граней ростверка.
   // Шаг — СП 63 п. 10.3.8 (не более 1,5h и 400 мм), расстояние в свету — п. 10.3.5 (не менее d и 25 мм).
   function meshLayout(p) {
+    const cAuto = p.cover + Math.max(p.dsx, p.dsy) / 2;
+    const cSet = isNum(p.meshEdge) && p.meshEdge > 0 ? p.meshEdge : null;
     const one = (n, d, across, along) => {
-      const c = p.cover + d / 2;
+      const c = cSet !== null ? cSet : cAuto;
       const s = n > 1 ? (across - 2 * c) / (n - 1) : NaN;
       const sMax = Math.min(1.5 * p.h, 400), clearMin = Math.max(d, 25);
       const len = along - 2 * p.cover;
@@ -930,7 +935,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
         pos: Array.from({ length: n }, (_, i) => (n > 1 ? c + i * s : across / 2)),
       };
     };
-    return { x: one(p.nx, p.dsx, p.b, p.l), y: one(p.ny, p.dsy, p.l, p.b), cls: p.rebarClass };
+    return { x: one(p.nx, p.dsx, p.b, p.l), y: one(p.ny, p.dsy, p.l, p.b), cls: p.rebarClass, cAuto, manual: cSet !== null };
   }
 
   function computeLocal(p, r) {
@@ -978,6 +983,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     r.input = p;
     r.local = computeLocal(p, r);
     r.mesh = meshLayout(p);
+    r.meshEdgeAuto = r.mesh.cAuto;
     const corner = p.pilePosition === 'Угловая';
     const yes = (v) => v === true || v === 'Да';
     const useSw = yes(p.useTransverse);
@@ -1273,6 +1279,9 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     for (const k of nonNeg) {
       if (!isNum(p[k]) || p[k] < 0) err('neg-' + k, `${LABELS[k]}: значение не может быть отрицательным`, `Сейчас: ${fmtN(p[k])}.`, [k]);
     }
+    if (p.meshEdge !== null && p.meshEdge !== undefined && (!isNum(p.meshEdge) || p.meshEdge <= 0 || 2 * p.meshEdge >= Math.min(p.l, p.b))) {
+      err('mesh-edge-bad', 'Расстояние до оси крайнего стержня задано неверно', 'Значение должно быть больше нуля и меньше половины размера ростверка. Очистите поле, чтобы принять защитный слой + d/2.', ['meshEdge']);
+    }
     for (const k of ['dX', 'dY']) {
       if (p[k] !== null && p[k] !== undefined && (!isNum(p[k]) || p[k] < 0)) err('neg-' + k, `${LABELS[k]}: значение не может быть отрицательным`, 'Оставьте поле пустым для значения по СП 45.13330.2017 или введите 0.', [k]);
     }
@@ -1352,6 +1361,10 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 
     // 5. Проверяемая свая (по расчёту, с учётом допуска на смещение)
     const r = compute(p);
+    if (isNum(p.meshEdge) && p.meshEdge > 0) {
+      const dmax = Math.max(p.dsx, p.dsy), cl = p.meshEdge - dmax / 2, need = Math.max(40, dmax);
+      if (cl < need) warn('mesh-edge', 'Мал защитный слой у боковых граней ростверка', `От грани до оси крайнего стержня ${fmtN(p.meshEdge)} мм — защитный слой ${fmtN(cl)} мм < ${fmtN(need)} мм (в фундаментах при бетонной подготовке не менее 40 мм и не менее диаметра стержня — СП 63.13330.2018 п. 10.3.2, табл. 10.1).`, ['meshEdge']);
+    }
     for (const [ax, m] of [['X', r.mesh.x], ['Y', r.mesh.y]]) {
       const f = ax === 'X' ? ['nx', 'dsx'] : ['ny', 'dsy'];
       if (!m.okMax) warn('mesh-max-' + ax, `Шаг стержней сетки вдоль ${ax} больше допустимого`, `${m.n} Ø${fmtN(m.d)}: шаг ${fmtN(m.s)} мм > ${fmtN(m.sMax)} мм (не более 1,5h и 400 мм — СП 63.13330.2018 п. 10.3.8). Увеличьте число стержней.`, f);
@@ -1395,7 +1408,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     return { errors, warnings, result: errors.length ? null : r };
   }
 
-  const VERSION = '2026-10-17.2'; // должна совпадать с версией страницы и отчёта (index.html, report.js)
+  const VERSION = '2026-10-17.3'; // должна совпадать с версией страницы и отчёта (index.html, report.js)
   return { VERSION, compute, validate, suggest, DEFAULTS, CONCRETE, REBAR, BETA_TABLE, betaOf };
 });
 
@@ -1661,7 +1674,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
   function meshScheme(r) {
     const p = r.input, m = r.mesh;
     if (!m || !(m.x.n > 0) || !(m.y.n > 0)) return null;
-    const left = 64, right = 34, top = 50;
+    const left = 64, right = 34, top = 76;
     const k = Math.min((W - left - right) / p.l, 280 / p.b);
     const X = (x) => left + x * k, Y = (y) => top + (p.b - y) * k; // Y — вверх
     const s = Svg();
@@ -1678,11 +1691,32 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     const x0 = p.cover, x1 = p.l - p.cover, y0 = p.cover, y1 = p.b - p.cover;
     for (const y of m.x.pos) s.line(X(x0), Y(y), X(x1), Y(y), 'sd-bar');
     for (const x of m.y.pos) s.line(X(x), Y(y0), X(x), Y(y1), 'sd-bar2');
-    // Позиции
-    const mark = (cx, cy, t) => { s.add(`<circle cx="${cx}" cy="${cy}" r="7.5" class="sd-pos"/>`); s.text(cx, cy + 3.5, t, { cls: 'sd-t' }); };
-    const yMid = m.x.pos[Math.floor((m.x.n - 1) / 2)], xMid = m.y.pos[Math.floor((m.y.n - 1) / 2)];
-    s.line(X(x1), Y(yMid), X(p.l) + 12, Y(yMid), 'sd-ext'); mark(X(p.l) + 20, Y(yMid), '1');
-    s.line(X(xMid), Y(y1), X(xMid), Y(p.b) - 12, 'sd-ext'); mark(X(xMid), Y(p.b) - 20, '2');
+    // Выноски: точка на стержне, наклонная линия, полка, над полкой — марка позиции
+    const callout = (px, py, shelfY, dir, txt, sub) => {
+      const ex = px + dir * (py - shelfY) * 0.8;
+      let w = Math.max(tw(txt), tw(sub)) + 6;
+      let sx2 = ex + dir * w;
+      if (sx2 > W - 2) { dir = -1; sx2 = ex - w; }
+      if (sx2 < 2) { dir = 1; sx2 = ex + w; }
+      s.add(`<circle cx="${px}" cy="${py}" r="2.2" class="sd-dot"/>`);
+      s.line(px, py, ex, shelfY, 'sd-lead');
+      s.line(ex, shelfY, sx2, shelfY, 'sd-lead');
+      const tx = dir > 0 ? ex + 3 : ex - 3, anc = dir > 0 ? 'start' : 'end';
+      s.text(tx, shelfY - 3, txt, { cls: 'sd-t', anchor: anc });
+      s.text(tx, shelfY + 10, sub, { cls: 'sd-t', anchor: anc });
+    };
+    const f1s = (v) => String(Math.round(v));
+    // поз. 1 — на верхнем стержне вдоль X, в правой части; поз. 2 — на стержне вдоль Y слева
+    // точки выносок — в середине ячейки, не на пересечении стержней
+    const between = (arr, target) => {
+      if (arr.length < 2) return arr[0];
+      let i = arr.findIndex((v) => v > target); if (i <= 0) i = arr.length - 1;
+      return (arr[i - 1] + arr[i]) / 2;
+    };
+    const yTop = m.x.pos[m.x.n - 1];
+    const yBetween = m.x.n > 1 ? (m.x.pos[m.x.n - 1] + m.x.pos[m.x.n - 2]) / 2 : (yTop + y1) / 2;
+    callout(X(between(m.y.pos, p.l * 0.72)), Y(yTop), top - 14, 1, `1 — ${m.x.n} Ø${m.x.d} ${m.cls}`, `вдоль X, шаг ${f1s(m.x.s)}`);
+    callout(X(m.y.pos[Math.min(1, m.y.n - 1)]), Y(yBetween), top - 44, -1, `2 — ${m.y.n} Ø${m.y.d} ${m.cls}`, `вдоль Y, шаг ${f1s(m.y.s)}`);
     // Размеры: габариты и привязка/шаг первых стержней
     const yB = Y(0);
     const chainY = [0, m.y.pos[0]].concat(m.y.n > 1 ? [m.y.pos[1]] : []);
@@ -1698,7 +1732,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     s.text(left, ly, line('1 — вдоль X', m.x), { cls: 'sd-t', anchor: 'start' });
     s.text(left, ly + 14, line('2 — вдоль Y', m.y), { cls: 'sd-t', anchor: 'start' });
     const H = ly + 24;
-    const caption = `Раскладка нижней сетки: поз. 1 — ${m.x.n} Ø${m.x.d} ${m.cls} вдоль X с шагом ${num(m.x.s)} мм, поз. 2 — ${m.y.n} Ø${m.y.d} ${m.cls} вдоль Y с шагом ${num(m.y.s)} мм; оси крайних стержней — в ${num(m.x.c)} мм от граней (защитный слой ${num(p.cover)} мм + d/2). Масса ≈ ${f1(m.x.mass + m.y.mass)} кг. Шаг не более ${num(m.x.sMax)} мм (СП 63 п. 10.3.8), в свету не менее d и 25 мм (п. 10.3.5).`;
+    const caption = `Раскладка нижней сетки: поз. 1 — ${m.x.n} Ø${m.x.d} ${m.cls} вдоль X с шагом ${num(m.x.s)} мм, поз. 2 — ${m.y.n} Ø${m.y.d} ${m.cls} вдоль Y с шагом ${num(m.y.s)} мм; оси крайних стержней — в ${num(m.x.c)} мм от граней (${m.manual ? 'задано' : `защитный слой ${num(p.cover)} мм + d/2`}). Масса ≈ ${f1(m.x.mass + m.y.mass)} кг. Шаг не более ${num(m.x.sMax)} мм (СП 63 п. 10.3.8), в свету не менее d и 25 мм (п. 10.3.5).`;
     return { svg: s.out(H, 'hm', 'План нижней сетки ростверка'), caption };
   }
 
@@ -22468,7 +22502,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     });
   }
 
-  const VERSION = '2026-10-17.2';
+  const VERSION = '2026-10-17.3';
   return { VERSION, create, build, omml, injectMath, FONT };
 });
 
@@ -22478,7 +22512,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   'use strict';
   const C = window.RostverkCalc;
   // Страница и подключаемые файлы ядра должны быть одной версии: иначе часть расчёта не отобразится
-  const APP_VERSION = '2026-10-17.2';
+  const APP_VERSION = '2026-10-17.3';
   function banner(msg) {
     let el = document.getElementById('appBanner');
     if (!el) {
@@ -22559,6 +22593,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       { k: 'ny', cell: 'C60', label: 'Количество стержней вдоль Y (на длину l)', sym: 'ny', u: 'шт' },
       { k: 'e0', cell: 'C64', label: 'Смещение свай от колонны (увеличение плеча момента)', sym: 'e0', u: 'мм', hint: 'СП 45.13330.2017 табл. 12.1: 0,2d–0,3d; 0 — без учёта' },
       { k: 'cover', cell: 'C65', label: 'Защитный слой до торца стержней сетки', sym: 'aт', u: 'мм' },
+      { k: 'meshEdge', label: 'От грани ростверка до оси крайнего стержня сетки', sym: 'aб', u: 'мм', optional: true, autoFrom: 'meshEdgeAuto', autoLabel: 'слой + d/2', autoNote: 'защитный слой + d/2', hint: 'Для раскладки сетки и проверки шага. По умолчанию — защитный слой + d/2; очистите поле, чтобы вернуть. Защитный слой — не менее 40 мм и d (СП 63 табл. 10.1)' },
       { k: 'lanReduction', label: 'Снижение длины анкеровки lan', opts: [['Нет', 0], ['10 %', 0.1], ['20 %', 0.2], ['30 % (максимум)', 0.3]], hint: 'СП 63 п. 10.3.25: за загиб концов (лапки) и обжатие бетона от реакции сваи — не более 30 %' },
       { k: 'anchorMethod', label: 'Проверка наклонного сечения по моменту', opts: ['СП 63 п. 8.1.35', 'Пособие п. 2.15'], hint: 'В итог входит выбранный метод, второй показывается для сравнения. СП 63: полный момент по грани колонны и полная длина анкеровки; Пособие: при Q ≤ 0,6·Rbt·b·h0 — обеспечена, иначе анкеровка у крайнего ряда свай по ф. (27)–(31)' },
       { k: 'eta1', cell: 'C67', label: 'Коэффициент сцепления арматуры с бетоном', sym: 'η1', hint: 'СП 63 п. 10.3.24: 2,5 — горячекатаная периодического профиля' },
@@ -22681,7 +22716,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   function fillAuto(f, r) {
     const el = $('f-' + f.k);
     const v = r && r[f.autoFrom];
-    el.placeholder = isNum(v) ? 'по СП 45: ' + fmt(v) : '';
+    el.placeholder = isNum(v) ? (f.autoLabel || 'по СП 45') + ': ' + fmt(v) : '';
     if (state[f.k] === null && document.activeElement !== el && isNum(v)) el.value = String(Math.round(v * 10) / 10);
   }
   form.addEventListener('focusout', (e) => {
@@ -23448,7 +23483,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         let v = state[f.k];
         if (f.k === 'bpk' || f.k === 'hpk') return { label: f.label, sym: f.sym, value: isNum(v) ? fmt(v, 3) : 'нет', unit: isNum(v) ? f.u : '' };
         if (f.opts) { const o = f.opts.map((q) => (Array.isArray(q) ? q : [q, q])).find(([, ov]) => ov === v); v = o ? o[0] : String(v); }
-        else if (f.autoFrom && !isNum(v)) v = fmt(lastResult[f.k]) + ' (СП 45)';
+        else if (f.autoFrom && !isNum(v)) v = fmt(lastResult[f.autoFrom]) + ` (${f.autoNote || 'СП 45'})`;
         else if (f.optional && !isNum(v)) v = 'нет';
         else v = fmt(v, 3);
         return { label: f.label, sym: f.sym && f.sym !== 'класс' ? f.sym : '', value: v, unit: f.u || '' };
