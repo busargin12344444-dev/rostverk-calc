@@ -158,6 +158,12 @@ table { border-collapse: collapse; width: 100%; }
 details.blk.fail > summary .num { color: var(--bad); font-weight: 600; }
 details.blk.flash { animation: flash 1.2s ease-out; }
 @keyframes flash { from { background: var(--bad-bg); } to { background: transparent; } }
+.checks .note-line { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; }
+.dt.cmp { width: 100%; table-layout: fixed; }
+.dt.cmp th, .dt.cmp td { white-space: normal; text-align: left; vertical-align: top; line-height: 1.35; }
+.dt.cmp th:first-child, .dt.cmp td:first-child { width: 22%; min-width: 0; }
+.dt.cmp td.used, .dt.cmp th.used { background: var(--accent-soft); }
+@media (max-width: 640px) { .dt.cmp { table-layout: auto; min-width: 560px; } }
 .checks .msg { display: block; font-size: 12px; color: var(--bad); margin-top: 2px; }
 @media (max-width: 640px) {
   .checks tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; padding: 8px 10px; border-top: 1px solid var(--line); }
@@ -1040,7 +1046,8 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
       { key: 'bend', title: 'Изгиб — нормальные сечения по граням колонны', K: KbendMax,
         verdict: ok(KbendMax) ? OK : NOK + ': увеличить As', pass: ok(KbendMax) },
       { key: 'anchor', title: byPosobie ? 'Наклонное сечение по моменту, анкеровка (Пособие п. 2.15)' : 'Наклонное сечение по моменту (СП 63 п. 8.1.35)', K: Kanchor,
-        verdict: ok(Kanchor) ? OK : NOK + (byPosobie ? ': увеличить As, свес или h' : ': увеличить As, ls или h; см. снижение lan по п. 10.3.25'), pass: ok(Kanchor) },
+        verdict: ok(Kanchor) ? OK : NOK + (byPosobie ? ': увеличить As, свес или h' : ': увеличить As, ls или h; см. снижение lan по п. 10.3.25'), pass: ok(Kanchor),
+        note: `Для сравнения ${byPosobie ? 'по СП 63 п. 8.1.35' : 'по Пособию п. 2.15'}: K = ${fmtN3(byPosobie ? KMsMax : KPMax)} — в итог не входит` },
       { key: 'localcol', title: r.local.column
           ? ({ steel: 'Местное сжатие под опорной плитой базы стальной колонны (СП 63 п. 8.1.44; Пособие п. 2.21)',
             cup: 'Местное сжатие у дна стакана под торцом колонны (СП 63 п. 8.1.44; Пособие п. 2.17)',
@@ -1067,6 +1074,13 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     r.summary = summary;
     r.edgeCheck = edgeCheck;
     r.KMsMax = KMsMax; r.KPMax = KPMax;
+    // Сравнение двух методов проверки наклонного сечения по моменту (в итог входит выбранный)
+    const gSp = sec.reduce((a, b2) => (b2.KMs > a.KMs ? b2 : a)), gP = sec.reduce((a, b2) => (b2.anchorP.K > a.anchorP.K ? b2 : a));
+    r.anchorCompare = {
+      used: byPosobie ? 'pos' : 'sp',
+      sp: { K: KMsMax, sec: gSp.name, M: gSp.M, ls: gSp.ls, lan: gSp.lan, Ns: gSp.Ns, Ms: gSp.Ms, As: gSp.As, lanRed: r.lanRed },
+      pos: { K: KPMax, sec: gP.name, Q: gP.Q, As: gP.As, ...gP.anchorP },
+    };
     r.overall = overall;
     r.overallText = overall
       ? 'Прочность ростверка обеспечена: продавливание колонной и угловой (крайней) сваей, поперечная сила, изгиб, местное сжатие.'
@@ -1239,6 +1253,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     bpl: 'Опорная плита базы по X', hpl: 'Опорная плита базы по Y',
     xPile: 'Привязка оси сваи к краю X=0', yPile: 'Привязка оси сваи к краю Y=0', kM: 'Доля момента kM', kLim: 'Коэффициент k',
   };
+  const fmtN3 = (v) => (isNum(v) ? v.toFixed(3).replace('.', ',') : '—');
   const fmtN = (v) => (isNum(v) ? String(Math.round(v * 10) / 10).replace('.', ',').replace('-', '−') : '—');
 
   function validate(userInput) {
@@ -1380,7 +1395,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     return { errors, warnings, result: errors.length ? null : r };
   }
 
-  const VERSION = '2026-10-17.1'; // должна совпадать с версией страницы и отчёта (index.html, report.js)
+  const VERSION = '2026-10-17.2'; // должна совпадать с версией страницы и отчёта (index.html, report.js)
   return { VERSION, compute, validate, suggest, DEFAULTS, CONCRETE, REBAR, BETA_TABLE, betaOf };
 });
 
@@ -22284,7 +22299,6 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     eq(E('l_{an} = ', r.lanRed ? `(1 − ${f(r.lanRed, 2)})·` : '', fr('R_{s}·d_{s}', '4·η_{1}·η_{2}·R_{bt}'), ';   N_{s} = ', fr('R_{s}·A_{s}·l_{s}', 'l_{an}'), ' ≤ R_{s}·A_{s};   M ≤ M_{s} = N_{s}·0,9·h_{0}.'));
     P('По Пособию п. 2.15 прочность обеспечена, если поперечная сила не менее чем в 1,25 раза меньше Q по ф. (15) при h_{0}/c = 0,5, т. е. Q ≤ 0,6·R_{bt}·b·h_{0}; иначе проверяется анкеровка у крайнего ряда свай по ф. (27)–(31):', { keepNext: true });
     eq(E('M_{sec} = ', pr('c + ', fr('d_{sv}', '2')), '·ΣF_{i};   A_{s,cal} = ', fr('M_{sec}', '0,9·h_{0}·R_{s}'), ';   l_{an} = ', pr('0,5·', fr('R_{s}', 'R_{b}'), '·', fr('A_{s,cal}', 'A_{s,fac}'), ' + 8'), '·d ≥ 12d;   l_{fac} = d_{sv} + l_{0} − a ≥ l_{an}.'));
-    P(`В итог принимается проверка ${byP ? 'по Пособию п. 2.15' : 'по СП 63 п. 8.1.35'}.`);
     const sideRows = [
       ['Поперечная сила Q, кН', ...se.map((q) => f(q.Q, 1))],
       ['Q_{ult} = 0,3·R_{b}·b·h_{0}, кН', ...se.map((q) => f(q.Qstrip, 1))],
@@ -22339,6 +22353,29 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     } else {
       P('Сваи крайнего ряда заходят под колонну — анкеровку проверьте вручную.');
     }
+    // Сравнение двух методов
+    const A = r.anchorCompare;
+    if (A) {
+      const s1 = A.sp, s2 = A.pos, pa = s2.needP && isNum(s2.lanP);
+      P('Проверки наклонного сечения по моменту по СП 63 и по Пособию различаются расчётной схемой; сравнение приведено в таблице.', { keepNext: true });
+      table('Сравнение проверок наклонного сечения по моменту', ['Параметр', 'СП 63 п. 8.1.35', 'Пособие п. 2.15'], [
+        ['Статус', A.used === 'sp' ? 'принята в итог' : 'для сравнения', A.used === 'pos' ? 'принята в итог' : 'для сравнения'],
+        ['Когда проверка не нужна', 'выполняется всегда', `при Q ≤ 0,6·R_{bt}·b·h_{0} (${f(s2.Q, 1)} ${s2.needP ? '>' : '≤'} ${f(s2.QlimP, 1)} кН)`],
+        ['Расчётный момент, кН·м', `M по грани колонны = ${f(s1.M, 1)}`, pa ? `M_{sec} у крайнего ряда свай = ${f(s2.Msec, 1)}` : '—'],
+        ['Требуемая длина анкеровки, мм', `l_{an} по сцеплению = ${f(s1.lan, 0)}`, pa ? `l_{an} с учётом A_{s,cal}/A_{s,fac} = ${f(s2.lanP, 0)}` : '—'],
+        ['Фактическая длина заделки, мм', `l_{s} = ${f(s1.ls, 0)}`, pa ? `l_{fac} = ${f(s2.lfac, 0)}` : '—'],
+        ['Определяющее сечение', s1.sec, s2.sec],
+        ['Коэффициент использования K', k3(s1.K), k3(s2.K)],
+      ], 1, [34, 33, 33]);
+      const why = [];
+      if (pa && s1.M > s2.Msec * 1.05) why.push(`по СП 63 проверяется полный момент по грани колонны, по Пособию — момент в сечении у крайнего ряда свай (в ${f(s1.M / s2.Msec, 2)} раза меньше)`);
+      if (pa && s1.lan > s2.lanP * 1.05) why.push('длина анкеровки по СП 63 определяется сцеплением арматуры с бетоном при полном R_{s}, а по Пособию уменьшается пропорционально загрузке арматуры A_{s,cal}/A_{s,fac}');
+      if (!s2.needP) why.push('по Пособию при малой поперечной силе прочность наклонного сечения по моменту считается обеспеченной без расчёта, СП 63 такого условия не содержит');
+      if (why.length) P(`Результаты различаются, так как ${why.join('; ')}.`);
+      P(A.used === 'sp'
+        ? 'В итог принимается проверка по СП 63.13330.2018 как действующему нормативному документу; проверка по Пособию (разработано к СНиП 2.03.01-84, носит рекомендательный характер) приведена для сравнения.'
+        : 'В итог принимается проверка по Пособию п. 2.15; проверка по действующему СП 63.13330.2018 приведена для сравнения.');
+    }
     sec += 1;
 
     // ---------- Местное сжатие ----------
@@ -22379,7 +22416,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     // ---------- Сводка и вывод ----------
     children.push(heading(`${sec}. Результаты расчёта`));
     table('Сводка проверок', ['Проверка', 'K', 'Результат'],
-      [...r.summary.map((s) => [s.title, k3(s.K), s.verdict]),
+      [...r.summary.map((s) => [s.title, k3(s.K), s.note ? `${s.verdict}. ${s.note}` : s.verdict]),
         [r.edgeCheck.title, `${f(r.edgeCheck.value, 0)} мм`, r.edgeCheck.verdict]], 1, [55, 12, 33]);
     children.push(new Paragraph({
       children: [new TextRun({ ...BASE, bold: true, text: 'Вывод: ' + r.overallText })],
@@ -22431,7 +22468,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     });
   }
 
-  const VERSION = '2026-10-17.1';
+  const VERSION = '2026-10-17.2';
   return { VERSION, create, build, omml, injectMath, FONT };
 });
 
@@ -22441,7 +22478,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   'use strict';
   const C = window.RostverkCalc;
   // Страница и подключаемые файлы ядра должны быть одной версии: иначе часть расчёта не отобразится
-  const APP_VERSION = '2026-10-17.1';
+  const APP_VERSION = '2026-10-17.2';
   function banner(msg) {
     let el = document.getElementById('appBanner');
     if (!el) {
@@ -22523,7 +22560,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       { k: 'e0', cell: 'C64', label: 'Смещение свай от колонны (увеличение плеча момента)', sym: 'e0', u: 'мм', hint: 'СП 45.13330.2017 табл. 12.1: 0,2d–0,3d; 0 — без учёта' },
       { k: 'cover', cell: 'C65', label: 'Защитный слой до торца стержней сетки', sym: 'aт', u: 'мм' },
       { k: 'lanReduction', label: 'Снижение длины анкеровки lan', opts: [['Нет', 0], ['10 %', 0.1], ['20 %', 0.2], ['30 % (максимум)', 0.3]], hint: 'СП 63 п. 10.3.25: за загиб концов (лапки) и обжатие бетона от реакции сваи — не более 30 %' },
-      { k: 'anchorMethod', label: 'Проверка наклонного сечения по моменту', opts: ['СП 63 п. 8.1.35', 'Пособие п. 2.15'], hint: 'Пособие: при Q ≤ 0,6·Rbt·b·h0 — обеспечена, иначе анкеровка у крайнего ряда по ф. (27)–(31)' },
+      { k: 'anchorMethod', label: 'Проверка наклонного сечения по моменту', opts: ['СП 63 п. 8.1.35', 'Пособие п. 2.15'], hint: 'В итог входит выбранный метод, второй показывается для сравнения. СП 63: полный момент по грани колонны и полная длина анкеровки; Пособие: при Q ≤ 0,6·Rbt·b·h0 — обеспечена, иначе анкеровка у крайнего ряда свай по ф. (27)–(31)' },
       { k: 'eta1', cell: 'C67', label: 'Коэффициент сцепления арматуры с бетоном', sym: 'η1', hint: 'СП 63 п. 10.3.24: 2,5 — горячекатаная периодического профиля' },
     ] },
     { title: 'Поперечная арматура в зоне продавливания', fields: [
@@ -22860,7 +22897,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       const na = s.pass === null;
       const extra = s.pass === false && /:/.test(s.verdict) ? `<span class="msg">${esc(s.verdict.split(': ')[1])}</span>` : '';
       const go = BLOCK_OF[s.key];
-      return `<tr${go ? ` data-go="${go}" title="Показать подробный расчёт"` : ''}><td class="t">${esc(s.title)}${na ? `<span class="small"> — ${esc(s.verdict)}</span>` : ''}${extra}${go ? '<span class="go">подробно ↓</span>' : ''}</td>
+      const note = s.note ? `<span class="note-line">${esc(s.note)}</span>` : '';
+      return `<tr${go ? ` data-go="${go}" title="Показать подробный расчёт"` : ''}><td class="t">${esc(s.title)}${na ? `<span class="small"> — ${esc(s.verdict)}</span>` : ''}${extra}${note}${go ? '<span class="go">подробно ↓</span>' : ''}</td>
         <td class="barc">${bar(s.K)}</td><td class="k">${fmtK(s.K)}</td><td class="vd">${pill(s.pass, na ? 'не выполняется' : '')}</td></tr>`;
     });
     $('checks').innerHTML = rows.join('');
@@ -22883,7 +22921,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   $('meshBlk').querySelector('summary').addEventListener('click', (e) => { e.preventDefault(); $('meshBlk').open = !$('meshBlk').open; });
   // Строка сводки → блок подробного расчёта
   const BLOCK_OF = { column: 'col', colsp63: 'colsp63', corner: 'corner', sp63: 'sp63', sp63sw: 'sp63', allcorners: 'allc',
-    strip: 'sec', shear: 'sec', bend: 'sec', anchor: 'sec', localcol: 'local', localpile: 'local' };
+    strip: 'sec', shear: 'sec', bend: 'sec', anchor: 'anchorcmp', localcol: 'local', localpile: 'local' };
   $('checks').addEventListener('click', (e) => {
     const tr = e.target.closest('tr[data-go]');
     if (!tr) return;
@@ -23216,8 +23254,39 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         ['Наибольший', 'K', r.allCorners.map((c) => c.K), '', { key: true, k: true }],
       ]) + '<p class="small">Моменты в голове сваи приняты как для проверяемой сваи; допуск на смещение — по выбранному направлению.</p>') : '',
       block('sec', 'Поперечная сила и изгиб по граням колонны (СП 63 пп. 8.1.8, 8.1.32–8.1.35)', Math.max(S.strip.K, S.shear.K, S.bend.K, S.anchor.K), secTbl),
+      block('anchorcmp', 'Наклонное сечение по моменту: СП 63 и Пособие — сравнение', S.anchor.K, anchorCmpInner(r)),
       block('local', 'Местное сжатие (смятие), СП 63.13330.2018 п. 8.1.44', Math.max(S.localcol.K || 0, S.localpile.K || 0), localInner(r)),
     ].join('');
+  }
+
+  // Сравнение проверок наклонного сечения по моменту: СП 63 п. 8.1.35 и Пособие п. 2.15
+  function anchorCmpInner(r) {
+    const A = r.anchorCompare, sp = A.sp, ps = A.pos, p = r.input;
+    const usedSp = A.used === 'sp';
+    const th = (t, u) => `<th class="${u ? 'used' : ''}">${esc(t)}${u ? ' — в итоге' : ' — для сравнения'}</th>`;
+    const row = (label, a, b) => `<tr><td class="l">${esc(label)}</td><td class="${usedSp ? 'used' : ''}">${a}</td><td class="${usedSp ? '' : 'used'}">${b}</td></tr>`;
+    const n = (v, d) => esc(fmt(v, d));
+    const kCell = (k) => `<b style="color:${k > 1 ? 'var(--bad)' : 'var(--ok)'}">K = ${esc(fmtK(k))}</b>`;
+    const posAnchor = ps.needP && isNum(ps.lanP);
+    const tbl = `<div class="tbl-wrap"><table class="dt cmp"><tr><th class="l">Что сравнивается</th>${th('СП 63.13330.2018 п. 8.1.35', usedSp)}${th('Пособие по ростверкам п. 2.15', !usedSp)}</tr>
+      ${row('Статус документа', 'Действующий свод правил', 'Пособие к СНиП 2.03.01-84 — рекомендательный, справочный документ')}
+      ${row('Когда проверка не нужна', 'Выполняется всегда', `Если Q ≤ 0,6·Rbt·b·h0 (Q в 1,25 раза меньше Qb по ф. (15) при h0/c = 0,5): Q = ${n(ps.Q, 1)} кН ${ps.needP ? '>' : '≤'} ${n(ps.QlimP, 1)} кН — ${ps.needP ? 'проверка нужна' : 'проверка не нужна'}`)}
+      ${row('Расчётный момент', `Полный момент по грани колонны M = ΣFi·(xi + e0) = ${n(sp.M, 1)} кН·м`, posAnchor ? `Момент в сечении у крайнего ряда свай Msec = (c + dsv/2)·ΣFi = ${n(ps.Msec, 1)} кН·м` : '—')}
+      ${row('Длина анкеровки', `Базовая по сцеплению с бетоном, ф. (10.1)–(10.3): lan = ${n(sp.lan, 0)} мм${sp.lanRed ? ` (со снижением на ${n(sp.lanRed * 100, 0)} % по п. 10.3.25)` : ''} — не зависит от загрузки арматуры`, posAnchor ? `По старой формуле СНиП: lan = (0,5·Rs/Rb·As,cal/As,fac + 8)·d ≥ 12d = ${n(ps.lanP, 0)} мм — уменьшается при недогруженной арматуре (As,cal = ${n(ps.AsCal, 2)} из ${n(ps.As, 2)} см²)` : '—')}
+      ${row('Фактическая длина заделки', `ls — от внутренней грани сваи до торца стержня: ${n(sp.ls, 0)} мм`, posAnchor ? `lfac = dsv + l0 − a = ${n(ps.lfac, 0)} мм` : '—')}
+      ${row('Условие', `M ≤ Ms = Rs·As·(ls/lan)·0,9·h0 = ${n(sp.Ms, 1)} кН·м`, posAnchor ? 'lan ≤ lfac' : 'Q ≤ 0,6·Rbt·b·h0')}
+      ${row('Определяющее сечение', esc(sp.sec), esc(ps.sec))}
+      ${row('Результат', kCell(sp.K), kCell(ps.K))}
+    </table></div>`;
+    const why = [];
+    if (posAnchor) {
+      if (sp.M > ps.Msec * 1.05) why.push(`СП 63 проверяет полный момент по грани колонны (${n(sp.M, 1)} кН·м), Пособие — меньший момент у крайнего ряда свай (${n(ps.Msec, 1)} кН·м), в ${n(sp.M / ps.Msec, 2)} раза меньше.`);
+      if (sp.lan > ps.lanP * 1.05) why.push(`Требуемая длина анкеровки по СП 63 (${n(sp.lan, 0)} мм) больше, чем по Пособию (${n(ps.lanP, 0)} мм): в СП 63 она определяется сцеплением с бетоном для полного Rs, а по Пособию уменьшается пропорционально загрузке арматуры.`);
+    } else if (!ps.needP) {
+      why.push('По Пособию поперечная сила мала, и прочность наклонного сечения по моменту считается обеспеченной без расчёта; СП 63 такого послабления не содержит.');
+    }
+    const choice = `<p class="small">В итог входит проверка ${usedSp ? '<b>по СП 63</b> (действующий нормативный документ)' : '<b>по Пособию</b>'} — метод выбирается в поле «Проверка наклонного сечения по моменту» (раздел «Армирование подошвы»). ${usedSp ? 'Проверка по Пособию приведена для сравнения.' : 'Учтите, что Пособие разработано к заменённому СНиП 2.03.01-84; при экспертизе основной считается проверка по СП 63.'}</p>`;
+    return tbl + (why.length ? `<p class="small"><b>Почему результаты различаются:</b> ${why.join(' ')}</p>` : '') + choice;
   }
 
   function localInner(r) {
