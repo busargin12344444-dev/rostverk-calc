@@ -265,6 +265,20 @@ details.blk .body { padding: 0 16px 16px; display: flex; flex-direction: column;
 .piles-wrap.flag-warn { outline: 2px solid var(--warn); outline-offset: 2px; border-radius: 4px; }
 dialog.issues { border: 1px solid var(--line); border-top: 5px solid var(--bad); border-radius: 10px; background: var(--surface); color: var(--ink);
   width: min(560px, calc(100vw - 32px)); padding: 20px 22px; }
+.projbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 0 0 10px; }
+.projbar .ptab { display: inline-flex; align-items: center; gap: 6px; max-width: 220px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); font: inherit; font-size: 13px; cursor: pointer; }
+.projbar .ptab span.nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.projbar .ptab.on { border-color: var(--accent); box-shadow: inset 0 -2px 0 var(--accent); font-weight: 600; }
+.projbar .dot, .pick-list .dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; background: var(--na); }
+.projbar .dot.ok, .pick-list .dot.ok { background: var(--ok); } .projbar .dot.bad, .pick-list .dot.bad { background: var(--bad); }
+.projbar .sep { flex: 1; }
+dialog.pick { border-top-color: var(--accent); max-width: 560px; width: calc(100% - 32px); }
+dialog.pick h2 { color: var(--ink); }
+dialog.pick .f { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; font-size: 13px; }
+dialog.pick .f input { padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); font: inherit; }
+.pick-list { list-style: none; padding: 0; margin: 8px 0 0; display: flex; flex-direction: column; gap: 4px; max-height: 50vh; overflow: auto; }
+.pick-list label { display: flex; gap: 8px; align-items: center; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; font-size: 13px; }
+.pick-list .st { margin-left: auto; font-size: 12px; color: var(--muted); }
 dialog.issues::backdrop { background: rgb(10 14 20 / 0.5); }
 dialog.issues h2 { color: var(--bad); margin-bottom: 6px; }
 dialog.issues .toolbar { margin-top: 16px; justify-content: flex-end; }
@@ -285,12 +299,15 @@ dialog.issues .toolbar { margin-top: 16px; justify-content: flex-end; }
     </div>
   </header>
 
+  <nav class="projbar" id="projbar" aria-label="Ростверки"></nav>
   <div class="toolbar">
-    <button class="btn primary" id="wordBtn" type="button">Скачать отчёт Word (.docx)</button>
+    <button class="btn primary" id="wordBtn" type="button">Отчёт Word по ростверку</button>
+    <button class="btn" id="manyBtn" type="button">Сводный отчёт…</button>
     <label class="btn" for="xlsxFile">Загрузить из Excel-шаблона…</label>
     <input type="file" id="xlsxFile" accept=".xlsx,.xlsm,.xls" hidden>
-    <button class="btn" id="saveProject" type="button">Сохранить проект</button>
-    <label class="btn" for="projectFile">Открыть проект…</label>
+    <button class="btn" id="saveProject" type="button">Сохранить ростверк</button>
+    <button class="btn" id="saveAll" type="button">Сохранить все</button>
+    <label class="btn" for="projectFile">Открыть…</label>
     <input type="file" id="projectFile" accept=".json,application/json" hidden>
     <button class="btn" id="resetBtn" type="button">Вернуть пример</button>
   </div>
@@ -342,6 +359,15 @@ dialog.issues .toolbar { margin-top: 16px; justify-content: flex-end; }
     </div>
   </div>
 </div>
+
+<dialog class="issues pick" id="manyDlg" aria-labelledby="manyDlgTitle">
+  <h2 id="manyDlgTitle">Сводный отчёт Word</h2>
+  <p class="small">Один документ: нормативная база, сводная таблица и подробный расчёт каждого выбранного ростверка. Ростверки с ошибками в исходных данных в отчёт не включаются.</p>
+  <label class="f"><span>Наименование объекта (заголовок отчёта)</span><input type="text" id="manyName" class="txt" placeholder="Например: Склад, корпус 2"></label>
+  <ul class="pick-list" id="manyList"></ul>
+  <div class="toolbar"><button class="btn small" type="button" id="manyAll">Выбрать все</button><button class="btn small" type="button" id="manyNone">Снять все</button>
+    <span style="flex:1"></span><button class="btn" type="button" id="manyCancel">Отмена</button><button class="btn primary" type="button" id="manyGo">Сформировать</button></div>
+</dialog>
 
 <dialog class="issues" id="blockDlg" aria-labelledby="blockDlgTitle">
   <h2 id="blockDlgTitle">Расчёт выполнить нельзя</h2>
@@ -1517,7 +1543,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     return { errors, warnings, result: errors.length ? null : r };
   }
 
-  const VERSION = '2026-10-18.1'; // должна совпадать с версией страницы и отчёта (index.html, report.js)
+  const VERSION = '2026-10-18.2'; // должна совпадать с версией страницы и отчёта (index.html, report.js)
   return { VERSION, compute, validate, suggest, DEFAULTS, CONCRETE, REBAR, BETA_TABLE, betaOf };
 });
 
@@ -22121,7 +22147,9 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     return out;
   }
 
-  function build(docx, r, opts) {
+  // ctx (сводный отчёт): { mode: 'preamble' | 'chapter' | 'postamble', chap, children, eqs, cnt } — общие
+  // список абзацев, формул и счётчики рисунков/таблиц; без ctx — отдельный отчёт по одному ростверку
+  function build(docx, r, opts, ctx) {
     const o = opts || {};
     const {
       Document, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, AlignmentType,
@@ -22141,9 +22169,10 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     const h0 = r.h0 / 10, h01 = r.h01 / 10;
     const h0c = r.h0top / 10; // под колонной (при ступенчатом ростверке — на всю высоту H)
     const RbtCm = r.Rbt / 10, RbCm = r.Rb / 10, RsCm = r.Rs / 10, RswCm = r.Rsw / 10;
-    const children = [];
-    const eqs = [];
-    let fig = 0, tab = 0;
+    const mode = ctx ? ctx.mode : 'single';
+    const children = ctx ? ctx.children : [];
+    const eqs = ctx ? ctx.eqs : [];
+    const cnt = ctx ? ctx.cnt : { fig: 0, tab: 0 };
 
     // Текст с разметкой _{...} / ^{...} → прогоны с индексами
     function runs(text, base) {
@@ -22183,10 +22212,15 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       }));
     }
     // Заголовок: формат задан в самом параграфе (не зависит от стилей Word)
-    const heading = (text, level) => new Paragraph({
-      children: [new TextRun({ ...BASE, size: SZ, bold: true, color: '000000', text })],
-      heading: level === 2 ? HeadingLevel.HEADING_2 : HeadingLevel.HEADING_1,
-      ...BODY, keepNext: true, keepLines: true,
+    // В главе сводного отчёта разделы перенумеровываются: «2. Исходные данные» → «<глава>.1. Исходные данные»
+    const renum = (text) => {
+      const mm = mode === 'chapter' && /^(\d+)((?:\.\d+)*)\.\s(.*)$/.exec(text);
+      return mm ? `${ctx.chap}.${Number(mm[1]) - 1}${mm[2]}. ${mm[3]}` : text;
+    };
+    const heading = (text, level, extra) => new Paragraph({
+      children: [new TextRun({ ...BASE, size: SZ, bold: true, color: '000000', text: renum(text) })],
+      heading: level === 2 || mode === 'chapter' ? HeadingLevel.HEADING_2 : HeadingLevel.HEADING_1,
+      ...BODY, keepNext: true, keepLines: true, ...(extra || {}),
     });
     const conclusion = (K, okText, badText) => {
       const ok = K <= 1;
@@ -22215,9 +22249,9 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       });
     }
     function table(caption, header, rows, numericFrom, widths) {
-      tab += 1;
+      cnt.tab += 1;
       children.push(new Paragraph({
-        children: runs(`Таблица ${tab} — ${caption}`, BASE),
+        children: runs(`Таблица ${cnt.tab} — ${caption}`, BASE),
         alignment: AlignmentType.LEFT, indent: { left: 0, right: 0, firstLine: 0 }, spacing: SP, keepNext: true,
       }));
       const nf = numericFrom === undefined ? 1 : numericFrom;
@@ -22242,7 +22276,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     }
     function image(img, caption, maxW) {
       if (!img) return;
-      fig += 1;
+      cnt.fig += 1;
       const w = Math.min(maxW || 420, img.width);
       const h = Math.round(img.height * w / img.width);
       children.push(blank());
@@ -22251,36 +22285,62 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         ...CENTER, keepNext: true,
       }));
       children.push(new Paragraph({
-        children: runs(`Рисунок ${fig} — ${caption}`, BASE),
+        children: runs(`Рисунок ${cnt.fig} — ${caption}`, BASE),
         ...CENTER,
       }));
       children.push(blank());
     }
     const P = (content, extra) => children.push(para(content, extra));
 
-    // ---------- Заголовок ----------
-    children.push(new Paragraph({
-      children: [new TextRun({ ...BASE, size: SZ_TITLE, bold: true, text: 'Расчёт ростверка на продавливание колонной и угловой (крайней) сваей' })],
-      ...CENTER,
-    }));
-    if (o.name) {
-      children.push(new Paragraph({
-        children: [new TextRun({ ...BASE, text: o.name })],
-        ...CENTER,
-      }));
-    }
-    P(`${r.caption}. Проверяемая свая — ${corner ? 'угловая' : 'крайняя'}.`);
-
-    // ---------- 1. Нормативная база ----------
-    children.push(heading('1. Нормативная база'));
-    [
+    const NORMS = [
       'СП 63.13330.2018 «Бетонные и железобетонные конструкции. Основные положения».',
       'Пособие по проектированию железобетонных ростверков свайных фундаментов под колонны зданий и сооружений (к СНиП 2.03.01-84).',
       'Пособие по проектированию бетонных и железобетонных конструкций из тяжёлого бетона без предварительного напряжения арматуры (к СП 52-101-2003).',
       'СП 24.13330.2021 «Свайные фундаменты» (пп. 8.3, 8.4, 8.8, 8.13).',
       'Пособие по проектированию фундаментов на естественном основании под колонны зданий и сооружений (к СНиП 2.03.01-84 и СНиП 2.02.01-83), пп. 2.47, 2.48 — местное сжатие у дна стакана.',
       'СП 45.13330.2017 «Земляные сооружения, основания и фундаменты» (допуски на положение свай, табл. 12.1).',
-    ].forEach((t) => P('– ' + t));
+    ];
+    const titlePara = (text) => children.push(new Paragraph({ children: [new TextRun({ ...BASE, size: SZ_TITLE, bold: true, text })], ...CENTER }));
+
+    // ---------- Сводный отчёт: вводная часть и заключительная ----------
+    if (mode === 'preamble') {
+      titlePara('Расчёт ростверков на продавливание колонной и угловой (крайней) сваей');
+      if (o.name) children.push(new Paragraph({ children: [new TextRun({ ...BASE, text: o.name })], ...CENTER }));
+      children.push(heading('1. Нормативная база'));
+      NORMS.forEach((t) => P('– ' + t));
+      children.push(heading('2. Сводка по ростверкам'));
+      P(`В документ включены расчёты ${o.items.length} ростверков; подробный расчёт каждого — в разделах 3–${o.items.length + 2}.`);
+      table('Результаты расчёта ростверков', ['№', 'Ростверк', 'Размеры, мм', 'K_{max}', 'Определяющая проверка', 'Вывод'],
+        o.items.map((it, i) => [String(i + 3), it.name, it.dims, k3(it.K), it.gov, it.ok ? 'обеспечена' : 'НЕ обеспечена']), 3, [7, 17, 20, 10, 25, 21]);
+      return null;
+    }
+    if (mode === 'postamble') {
+      children.push(heading(`${ctx.chap}. Допущения расчёта`, 1, { pageBreakBefore: true }));
+      (o.notes || []).forEach((t, i) => P(`${i + 1}. ${t}`));
+      return { doc: makeDoc(), eqs };
+    }
+
+    // ---------- Заголовок ----------
+    if (mode === 'chapter') {
+      children.push(new Paragraph({
+        children: [new TextRun({ ...BASE, size: SZ, bold: true, color: '000000', text: `${ctx.chap}. Ростверк ${o.name || ctx.chap - 2}` })],
+        heading: HeadingLevel.HEADING_1, ...BODY, keepNext: true, pageBreakBefore: true,
+      }));
+      P(`${r.caption}. Проверяемая свая — ${corner ? 'угловая' : 'крайняя'}.`);
+    } else {
+      titlePara('Расчёт ростверка на продавливание колонной и угловой (крайней) сваей');
+      if (o.name) {
+        children.push(new Paragraph({
+          children: [new TextRun({ ...BASE, text: o.name })],
+          ...CENTER,
+        }));
+      }
+      P(`${r.caption}. Проверяемая свая — ${corner ? 'угловая' : 'крайняя'}.`);
+
+      // ---------- 1. Нормативная база ----------
+      children.push(heading('1. Нормативная база'));
+      NORMS.forEach((t) => P('– ' + t));
+    }
 
     // ---------- 2. Исходные данные ----------
     children.push(heading('2. Исходные данные'));
@@ -22622,10 +22682,13 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       children.push(heading('Замечания к исходным данным', 2));
       o.warnings.forEach((w, i) => P(`${i + 1}. ${w.title}. ${w.text}`));
     }
+    if (mode === 'chapter') return null; // допущения — один раз в конце сводного отчёта
     children.push(heading('Допущения', 2));
     (o.notes || []).forEach((t, i) => P(`${i + 1}. ${t}`));
+    return { doc: makeDoc(), eqs };
 
-    const doc = new Document({
+    function makeDoc() {
+      return new Document({
       creator: 'Расчёт ростверка на продавливание',
       title: 'Расчёт ростверка на продавливание',
       styles: {
@@ -22643,8 +22706,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         properties: { page: { margin: { top: 1134, bottom: 1134, left: 1701, right: 850 } } },
         children,
       }],
-    });
-    return { doc, eqs };
+      });
+    }
   }
 
   // Готовый файл: Blob в браузере (type 'blob') или Buffer в Node.js ('nodebuffer')
@@ -22660,8 +22723,34 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     });
   }
 
-  const VERSION = '2026-10-18.1';
-  return { VERSION, create, build, omml, injectMath, FONT };
+  // Сводный отчёт по нескольким ростверкам: items — [{ r, opts }], opts.notes — допущения (общие)
+  async function createMany(docx, JSZip, items, opts, type) {
+    const o = opts || {};
+    const ctx = { children: [], eqs: [], cnt: { fig: 0, tab: 0 } };
+    const summary = items.map((it, i) => {
+      const r = it.r, p = r.input;
+      const worst = r.summary.filter((s) => isNum(s.K)).reduce((a, b) => (b.K > a.K ? b : a), { K: -1, title: '—' });
+      return {
+        name: (it.opts && it.opts.name) || `Ростверк ${i + 1}`,
+        dims: `${f(p.l, 0)}×${f(p.b, 0)}×${f(p.h, 0)}${r.step ? ` + ступень ${f(r.step.L, 0)}×${f(r.step.B, 0)}×${f(r.step.H, 0)}` : ''}`,
+        K: worst.K, gov: worst.title, ok: r.overall,
+      };
+    });
+    build(docx, items[0].r, { name: o.name, items: summary }, Object.assign(ctx, { mode: 'preamble' }));
+    items.forEach((it, i) => build(docx, it.r, it.opts, Object.assign(ctx, { mode: 'chapter', chap: i + 3 })));
+    const { doc, eqs } = build(docx, items[0].r, { notes: o.notes }, Object.assign(ctx, { mode: 'postamble', chap: items.length + 3 }));
+    const b64 = await docx.Packer.toBase64String(doc);
+    const zip = await JSZip.loadAsync(b64, { base64: true });
+    const xml = await zip.file('word/document.xml').async('string');
+    zip.file('word/document.xml', injectMath(xml, eqs));
+    return zip.generateAsync({
+      type: type || 'blob', compression: 'DEFLATE',
+      mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    });
+  }
+
+  const VERSION = '2026-10-18.2';
+  return { VERSION, create, createMany, build, omml, injectMath, FONT };
 });
 
 </script>
@@ -22670,7 +22759,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   'use strict';
   const C = window.RostverkCalc;
   // Страница и подключаемые файлы ядра должны быть одной версии: иначе часть расчёта не отобразится
-  const APP_VERSION = '2026-10-18.1';
+  const APP_VERSION = '2026-10-18.2';
   function banner(msg) {
     let el = document.getElementById('appBanner');
     if (!el) {
@@ -22776,11 +22865,25 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   const FIELDS = GROUPS.flatMap((g) => g.fields || []);
 
   // ---------- Состояние ----------
-  let state = clone(C.DEFAULTS);
+  // Рабочая область: несколько ростверков, у каждого свои исходные данные; state — данные активного
+  const WS_KEY = 'rostverk-calc-projects-v1';
+  const newId = () => Math.random().toString(36).slice(2, 10);
+  let ws = { active: null, projects: [] };
   try {
-    const saved = JSON.parse(localStorage.getItem(STORE_KEY) || 'null');
-    if (saved && typeof saved === 'object') state = normalize(saved);
+    const saved = JSON.parse(localStorage.getItem(WS_KEY) || 'null');
+    if (saved && Array.isArray(saved.projects)) {
+      ws.projects = saved.projects.filter((pr) => pr && pr.data).map((pr) => ({ id: pr.id || newId(), data: normalize(pr.data) }));
+      ws.active = saved.active;
+    }
+    if (!ws.projects.length) { // данные прежней версии (один ростверк)
+      const old = JSON.parse(localStorage.getItem(STORE_KEY) || 'null');
+      if (old && typeof old === 'object') ws.projects.push({ id: newId(), data: normalize(old) });
+    }
   } catch (e) { /* хранилище недоступно — работаем с примером */ }
+  if (!ws.projects.length) ws.projects.push({ id: newId(), data: clone(C.DEFAULTS) });
+  if (!ws.projects.some((pr) => pr.id === ws.active)) ws.active = ws.projects[0].id;
+  const activeProject = () => ws.projects.find((pr) => pr.id === ws.active);
+  let state = activeProject().data;
 
   function normalize(obj) {
     const out = clone(C.DEFAULTS);
@@ -22792,7 +22895,11 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     }
     return out;
   }
-  function save() { try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) { /* ignore */ } }
+  function save() {
+    activeProject().data = state; // state мог быть заменён целиком (пример, импорт, отмена)
+    try { localStorage.setItem(WS_KEY, JSON.stringify(ws)); } catch (e) { /* ignore */ }
+  }
+  const projName = (pr, i) => ((pr.data.reportName || '').trim() || `Ростверк ${i + 1}`);
 
   // ---------- Форматирование ----------
   function fmt(v, digits) {
@@ -22862,6 +22969,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     if (f.text) {
       state[k] = el.value;
       save();
+      renderProjects();
       return;
     } else if (f.opts) {
       const o = f.opts[+el.value];
@@ -22949,6 +23057,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       res.classList.add('is-blocked');
       renderBlocked(v.errors);
       $('fixes').hidden = true;
+      renderProjects();
       $('wordBtn').disabled = true;
       $('wordBtn').title = 'Расчёт не выполнен — исправьте исходные данные';
       $('pileBody').querySelectorAll('[data-c]').forEach((td) => { td.textContent = '—'; });
@@ -22966,6 +23075,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       try { fn(r); } catch (err) { banner(`Ошибка отображения (${name}): ${err.message}. Сообщите автору, приложив снимок экрана.`); }
     }
     scheduleFixes(r);
+    renderProjects();
     // Подстановки в форму
     for (const f of FIELDS) if (f.autoFrom) fillAuto(f, r);
     const rows = $('pileBody').querySelectorAll('tr');
@@ -23134,7 +23244,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   });
 
   // ---------- Схема ----------
-  function renderPlan(r) {
+  function renderPlan(r, asString) {
     const p = r.input;
     const round = p.pileShape === 'Круглая';
     const span = Math.max(p.l, p.b);
@@ -23191,7 +23301,9 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     s += `<text x="${X(ax)}" y="${Y(al) - fs * 0.4}" font-size="${fs}" fill="var(--ink)" text-anchor="middle" font-family="var(--font-mono)">Y</text>`;
     s += `<text x="${X(p.l / 2)}" y="${Y(0) + fs * 1.3}" font-size="${fs * 0.8}" fill="var(--muted)" text-anchor="middle">l = ${fmt(p.l, 0)}</text>`;
     s += `<text x="${X(p.l) + fs * 0.6}" y="${Y(p.b / 2)}" font-size="${fs * 0.8}" fill="var(--muted)" text-anchor="middle" transform="rotate(-90 ${X(p.l) + fs * 0.6} ${Y(p.b / 2)})">b = ${fmt(p.b, 0)}</text>`;
-    $('plan').innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="План ростверка со сваями, колонной и расчётными контурами">${s}</svg>`;
+    const svgMarkup = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="План ростверка со сваями, колонной и расчётными контурами">${s}</svg>`;
+    if (asString) return svgMarkup;
+    $('plan').innerHTML = svgMarkup;
     $('planCap').textContent = r.caption;
     const lgLine = (stroke, dash, w) => `<svg width="26" height="10" aria-hidden="true"><line x1="1" y1="5" x2="25" y2="5" stroke="${stroke}" stroke-width="${w || 1.5}" ${dash ? `stroke-dasharray="${dash}"` : ''}/></svg>`;
     const lgBox = (fill, stroke) => `<svg width="14" height="14" aria-hidden="true"><rect x="1" y="1" width="12" height="12" fill="${fill}" stroke="${stroke}" stroke-width="1.5"/></svg>`;
@@ -23576,22 +23688,89 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     return out.join('');
   }
 
-  // ---------- Проект: сохранить / открыть (.json) ----------
-  $('saveProject').addEventListener('click', async () => {
-    const name = (state.reportName || 'ростверк').trim().replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, '_').slice(0, 60);
-    const blob = new Blob([JSON.stringify({ app: 'rostverk-punching', version: 2, data: state }, null, 1)], { type: 'application/json' });
-    await saveFile(`Проект_${name}.json`, blob);
+  // ---------- Ростверки: вкладки, новый / копия / удалить ----------
+  const statusOf = (data) => { try { const v = C.validate(data); return v.errors.length ? 'err' : v.result.overall ? 'ok' : 'bad'; } catch (e) { return 'err'; } };
+  let delArmed = null;
+  function renderProjects() {
+    const bar = $('projbar');
+    if (!bar) return;
+    const tabs = ws.projects.map((pr, i) => {
+      const st = pr.id === ws.active ? (lastResult ? (lastResult.overall ? 'ok' : 'bad') : 'err') : statusOf(pr.data);
+      const tip = { ok: 'прочность обеспечена', bad: 'прочность НЕ обеспечена', err: 'ошибка в исходных данных' }[st];
+      return `<button type="button" class="ptab${pr.id === ws.active ? ' on' : ''}" data-pid="${pr.id}" title="${esc(projName(pr, i))} — ${tip}"><span class="dot ${st === 'err' ? '' : st}"></span><span class="nm">${esc(projName(pr, i))}</span></button>`;
+    }).join('');
+    const ai = ws.projects.findIndex((pr) => pr.id === ws.active), nameInp = $('f-reportName');
+    if (nameInp && ai >= 0) nameInp.placeholder = `Ростверк ${ai + 1}`; // так ростверк называется во вкладке и в отчёте, пока имя не задано
+    bar.innerHTML = `${tabs}<span class="sep"></span>
+      <button type="button" class="btn small" data-pact="new" title="Новый ростверк с исходными данными примера">+ Новый</button>
+      <button type="button" class="btn small" data-pact="copy" title="Копия текущего ростверка">Копия</button>
+      <button type="button" class="btn small" data-pact="del" ${ws.projects.length < 2 ? 'disabled' : ''}>${delArmed === ws.active ? 'Точно удалить?' : 'Удалить'}</button>`;
+  }
+  function switchTo(id) {
+    save();
+    ws.active = id; state = activeProject().data;
+    lastApplied = null; delArmed = null;
+    fillForm(); update();
+    // при переключении окно с ошибками не всплывает — они видны на странице; оно появится при новых ошибках
+    shownSig = lastIssues.errors.map((e) => e.id).join('|');
+  }
+  function addProject(data, label) {
+    save();
+    const pr = { id: newId(), data };
+    ws.projects.push(pr);
+    switchTo(pr.id);
+    if (label) setStatus(label);
+  }
+  $('projbar').addEventListener('click', (e) => {
+    const tab = e.target.closest('[data-pid]');
+    if (tab) { if (tab.dataset.pid !== ws.active) switchTo(tab.dataset.pid); return; }
+    const b = e.target.closest('[data-pact]');
+    if (!b) return;
+    const act = b.dataset.pact;
+    if (act !== 'del') delArmed = null;
+    if (act === 'new') addProject(Object.assign(clone(C.DEFAULTS), { reportName: `Ростверк ${ws.projects.length + 1}` }), 'Создан новый ростверк — исходные данные примера.');
+    else if (act === 'copy') addProject(Object.assign(clone(state), { reportName: `${(state.reportName || 'Ростверк').trim()} (копия)` }), 'Создана копия ростверка.');
+    else if (act === 'del' && ws.projects.length > 1) {
+      if (delArmed !== ws.active) { // удаление — по второму нажатию
+        delArmed = ws.active; renderProjects();
+        setTimeout(() => { if (delArmed) { delArmed = null; renderProjects(); } }, 4000);
+        return;
+      }
+      const idx = ws.projects.findIndex((pr) => pr.id === ws.active);
+      const nm = projName(ws.projects[idx], idx);
+      ws.projects.splice(idx, 1);
+      ws.active = ws.projects[Math.max(0, idx - 1)].id; state = activeProject().data;
+      delArmed = null; lastApplied = null;
+      fillForm(); update();
+      setStatus(`Ростверк «${nm}» удалён.`);
+    }
   });
+
+  // ---------- Файлы: ростверк / все ростверки (.json) ----------
+  const safeName = (s) => (s || 'ростверк').trim().replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, '_').slice(0, 60);
+  $('saveProject').addEventListener('click', async () => {
+    const blob = new Blob([JSON.stringify({ app: 'rostverk-punching', version: 2, data: state }, null, 1)], { type: 'application/json' });
+    await saveFile(`Проект_${safeName(state.reportName)}.json`, blob);
+  });
+  $('saveAll').addEventListener('click', async () => {
+    save();
+    const blob = new Blob([JSON.stringify({ app: 'rostverk-punching', version: 3, projects: ws.projects.map((pr) => pr.data) }, null, 1)], { type: 'application/json' });
+    await saveFile(`Ростверки_${ws.projects.length}_шт.json`, blob);
+  });
+  // Открытие добавляет ростверки из файла к списку (текущие не заменяются)
   $('projectFile').addEventListener('change', async (e) => {
     const file = e.target.files && e.target.files[0];
     e.target.value = '';
     if (!file) return;
     try {
       const obj = JSON.parse(await file.text());
-      state = normalize(obj && obj.data ? obj.data : obj);
-      fillForm(); update();
-      setStatus(`Проект «${file.name}» открыт.`);
-      maybeShowBlockDialog();
+      const list = obj && Array.isArray(obj.projects) ? obj.projects : [obj && obj.data ? obj.data : obj];
+      const add = list.filter((d) => d && typeof d === 'object').map((d) => ({ id: newId(), data: normalize(d) }));
+      if (!add.length) throw new Error('пусто');
+      save();
+      ws.projects.push(...add);
+      switchTo(add[0].id);
+      setStatus(add.length > 1 ? `Добавлено ростверков из «${file.name}»: ${add.length}.` : `Ростверк из «${file.name}» добавлен.`);
     } catch (err) { setStatus('Не удалось открыть файл: нужен файл проекта .json, сохранённый этой программой.', true); }
   });
   document.addEventListener('click', (e) => {
@@ -23684,20 +23863,48 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     const blob = await new Promise((res) => canvas.toBlob(res, 'image/png'));
     return { data: new Uint8Array(await blob.arrayBuffer()), width: w, height: h };
   }
-  function inputGroupsForReport() {
+  function inputGroupsForReport(st, r) {
     return GROUPS.filter((g) => g.fields).map((g) => ({
       title: g.title,
-      rows: g.fields.filter((f) => !f.text && (!f.only || f.only === state.colJoint) && (!f.showIf || isOn(state[f.showIf]))).map((f) => {
-        let v = state[f.k];
+      rows: g.fields.filter((f) => !f.text && (!f.only || f.only === st.colJoint) && (!f.showIf || isOn(st[f.showIf]))).map((f) => {
+        let v = st[f.k];
         if (f.k === 'bpk' || f.k === 'hpk') return { label: f.label, sym: f.sym, value: isNum(v) ? fmt(v, 3) : 'нет', unit: isNum(v) ? f.u : '' };
         if (f.opts) { const o = f.opts.map((q) => (Array.isArray(q) ? q : [q, q])).find(([, ov]) => ov === v); v = o ? o[0] : String(v); }
-        else if (f.autoFrom && !isNum(v)) v = fmt(lastResult[f.autoFrom]) + ` (${f.autoNote || 'СП 45'})`;
+        else if (f.autoFrom && !isNum(v)) v = fmt(r[f.autoFrom]) + ` (${f.autoNote || 'СП 45'})`;
         else if (f.optional && !isNum(v)) v = 'нет';
         else v = fmt(v, 3);
         return { label: f.label, sym: f.sym && f.sym !== 'класс' ? f.sym : '', value: v, unit: f.u || '' };
       }),
     }));
   }
+  async function markupToPng(markup, w) {
+    if (!markup) return null;
+    const box = document.createElement('div');
+    box.style.cssText = 'position:fixed;left:-10000px;top:0;width:800px';
+    box.innerHTML = markup;
+    document.body.appendChild(box);
+    try { return await svgToPng(box.querySelector('svg'), w); } finally { box.remove(); }
+  }
+  // Данные одного ростверка для отчёта: расчёт, рисунки и таблицы исходных данных.
+  async function reportItem(data) {
+    const v = C.validate(data);
+    if (v.errors.length || !v.result) return null;
+    const r = v.result;
+    const sc = window.RostverkSchemes.render(r);
+    const [plan, column, corner, mesh] = await Promise.all([
+      markupToPng(renderPlan(r, true), 420),
+      markupToPng(sc.column && sc.column.svg, 330),
+      markupToPng(sc.corner && sc.corner.svg, 330),
+      markupToPng(sc.mesh && sc.mesh.svg, 400),
+    ]);
+    return { r, opts: { name: (data.reportName || '').trim(), inputGroups: inputGroupsForReport(data, r), images: { plan, column, corner, mesh }, warnings: v.warnings } };
+  }
+  const reportNotes = () => [...document.querySelectorAll('.notes li')].map((li) => li.textContent.trim());
+  const libsReady = () => {
+    if (window.docx && window.JSZip && window.RostverkReport && window.RostverkSchemes) return true;
+    setStatus('Библиотека формирования Word не загрузилась — проверьте подключение к интернету и обновите страницу.', true);
+    return false;
+  };
   // Сохранение файла. Во встроенном просмотре claude.ai — через разрешение «downloads»;
   // открытая отдельно страница или локальный файл — обычным скачиванием браузера.
   function browserDownload(filename, blob) {
@@ -23753,24 +23960,56 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   }
   $('wordBtn').addEventListener('click', async () => {
     if (!lastResult) { setStatus('Сначала исправьте исходные данные — расчёт не выполнен.', true); return; }
-    if (!window.docx || !window.JSZip || !window.RostverkReport) { setStatus('Библиотека формирования Word не загрузилась — проверьте подключение к интернету и обновите страницу.', true); return; }
+    if (!libsReady()) return;
     const btn = $('wordBtn');
     btn.disabled = true; setStatus('Формирую отчёт…');
     try {
-      const [plan, column, corner, mesh] = await Promise.all([
-        svgToPng(document.querySelector('#plan svg'), 420),
-        svgToPng(document.querySelector('#schemeCol svg'), 330),
-        svgToPng(document.querySelector('#schemeCor svg'), 330),
-        svgToPng(document.querySelector('#schemeMesh svg'), 400),
-      ]);
-      const notes = [...document.querySelectorAll('.notes li')].map((li) => li.textContent.trim());
-      const name = (state.reportName || '').trim();
-      const blob = await window.RostverkReport.create(window.docx, window.JSZip, lastResult,
-        { name, inputGroups: inputGroupsForReport(), images: { plan, column, corner, mesh }, notes, warnings: lastIssues.warnings }, 'blob');
-      const safe = (name || 'ростверк').replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, '_').slice(0, 60);
-      await saveFile(`Расчет_продавливания_${safe}.docx`, blob);
+      const it = await reportItem(state);
+      if (!it) throw new Error('расчёт не выполнен');
+      it.opts.notes = reportNotes();
+      const blob = await window.RostverkReport.create(window.docx, window.JSZip, it.r, it.opts, 'blob');
+      await saveFile(`Расчет_продавливания_${safeName(it.opts.name || 'ростверк')}.docx`, blob);
     } catch (e) {
       setStatus('Не удалось сформировать отчёт: ' + (e && e.message ? e.message : e), true);
+    } finally { btn.disabled = false; }
+  });
+
+  // ---------- Сводный отчёт по нескольким ростверкам ----------
+  const STATUS_TXT = { ok: 'проходит', bad: 'не проходит', err: 'ошибка в данных — не войдёт в отчёт' };
+  $('manyBtn').addEventListener('click', () => {
+    save();
+    $('manyList').innerHTML = ws.projects.map((pr, i) => {
+      const st = statusOf(pr.data);
+      return `<li><label><input type="checkbox" value="${esc(pr.id)}" ${st === 'err' ? 'disabled' : 'checked'}> <span class="dot ${st}"></span> ${esc(projName(pr, i))} <span class="st">${STATUS_TXT[st]}</span></label></li>`;
+    }).join('');
+    const dlg = $('manyDlg');
+    if (dlg.showModal) dlg.showModal(); else dlg.setAttribute('open', '');
+  });
+  const manyChecks = () => [...$('manyList').querySelectorAll('input[type=checkbox]:not(:disabled)')];
+  $('manyAll').addEventListener('click', () => manyChecks().forEach((c) => { c.checked = true; }));
+  $('manyNone').addEventListener('click', () => manyChecks().forEach((c) => { c.checked = false; }));
+  const closeMany = () => { const dlg = $('manyDlg'); if (dlg.close) dlg.close(); else dlg.removeAttribute('open'); };
+  $('manyCancel').addEventListener('click', closeMany);
+  $('manyGo').addEventListener('click', async () => {
+    const ids = manyChecks().filter((c) => c.checked).map((c) => c.value);
+    if (!ids.length) { setStatus('Отметьте хотя бы один ростверк.', true); return; }
+    if (!libsReady()) return;
+    closeMany();
+    const btn = $('manyBtn');
+    btn.disabled = true; setStatus(`Формирую сводный отчёт (${ids.length})…`);
+    try {
+      const items = [];
+      for (const pr of ws.projects) {
+        if (!ids.includes(pr.id)) continue;
+        const it = await reportItem(pr.data);
+        if (it) { if (!it.opts.name) it.opts.name = projName(pr, ws.projects.indexOf(pr)); items.push(it); }
+      }
+      if (!items.length) throw new Error('нет ростверков с корректными исходными данными');
+      const title = $('manyName').value.trim();
+      const blob = await window.RostverkReport.createMany(window.docx, window.JSZip, items, { name: title, notes: reportNotes() }, 'blob');
+      await saveFile(`Сводный_отчет_${title ? safeName(title) + '_' : ''}${items.length}_ростверков.docx`, blob);
+    } catch (e) {
+      setStatus('Не удалось сформировать сводный отчёт: ' + (e && e.message ? e.message : e), true);
     } finally { btn.disabled = false; }
   });
 
