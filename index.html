@@ -491,6 +491,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     e0: 100,
     cover: 50,
     meshEdge: null,               // от грани ростверка до оси крайнего стержня сетки, мм (пусто — защитный слой + d/2)
+    meshModule: 50,               // шаг стержней сетки кратен, мм (0 — равномерно, без округления)
     hook: 0,
     eta1: 2.5,
     N: 2000,
@@ -999,22 +1000,57 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
   // Раскладка нижней сетки: стержни вдоль X (nx шт. по ширине b) и вдоль Y (ny шт. по длине l);
   // оси крайних стержней — на расстоянии «защитный слой + d/2» от граней ростверка.
   // Шаг — СП 63 п. 10.3.8 (не более 1,5h и 400 мм), расстояние в свету — п. 10.3.5 (не менее d и 25 мм).
+  // Шаги по ширине A для n стержней: все шаги кратны модулю M, привязка крайних стержней не менее cMin.
+  // Основной шаг — наибольший кратный M, при котором привязки не меньше cMin; если остаток велик
+  // (привязки больше cMin + M), часть шагов у краёв делается доборными (на M меньше), симметрично.
+  function meshSteps(n, A, cMin, M) {
+    if (!(n > 1)) return { steps: [], c1: A / 2, c2: A / 2 };
+    const k = n - 1;
+    if (!(M > 0)) { const s = (A - 2 * cMin) / k; return { steps: Array(k).fill(s), c1: cMin, c2: cMin }; }
+    const cm = Math.ceil(cMin / 5 - 1e-9) * 5;
+    const sU = Math.floor((A - 2 * cm) / k / M + 1e-9) * M;
+    const edges = (sum) => { const c1 = Math.floor((A - sum) / 2 / 5 + 1e-9) * 5; return { c1, c2: A - sum - c1 }; };
+    if (!(sU >= M)) { const s = (A - 2 * cMin) / k; return { steps: Array(k).fill(s), c1: cMin, c2: cMin, offModule: true }; } // чаще модуля — равномерно
+    let kd = 0; // число доборных шагов (sU) при основном шаге sU + M
+    if ((A - k * sU) / 2 > cm + M) {
+      kd = Math.ceil((k * (sU + M) - (A - 2 * cm)) / M - 1e-9);
+      if (kd % 2 && kd + 1 < k) kd += 1; // доборные — поровну у обоих краёв
+    }
+    if (kd <= 0 || kd >= k) return Object.assign({ steps: Array(k).fill(sU) }, edges(k * sU));
+    const S = sU + M, left = Math.ceil(kd / 2), right = kd - left;
+    const steps = [...Array(left).fill(sU), ...Array(k - kd).fill(S), ...Array(right).fill(sU)];
+    return Object.assign({ steps }, edges(k * S - kd * M));
+  }
+  // Группы одинаковых шагов подряд: [{ s, cnt }]
+  function stepGroups(steps) {
+    const g = [];
+    for (const s of steps) { const last = g[g.length - 1]; if (last && Math.abs(last.s - s) < 1e-6) last.cnt += 1; else g.push({ s, cnt: 1 }); }
+    return g;
+  }
   function meshLayout(p) {
     const cAuto = p.cover + Math.max(p.dsx, p.dsy) / 2;
     const cSet = isNum(p.meshEdge) && p.meshEdge > 0 ? p.meshEdge : null;
+    const M = isNum(p.meshModule) && p.meshModule > 0 ? p.meshModule : 0;
     const one = (n, d, across, along) => {
-      const c = cSet !== null ? cSet : cAuto;
-      const s = n > 1 ? (across - 2 * c) / (n - 1) : NaN;
+      const cMin = cSet !== null ? cSet : cAuto;
+      const { steps, c1, c2 } = meshSteps(n, across, cMin, M);
+      const sMinA = steps.length ? Math.min(...steps) : NaN, sMaxA = steps.length ? Math.max(...steps) : NaN;
+      // основной шаг — в средней части; доборные (меньше на модуль) — у краёв
+      const groups = stepGroups(steps);
+      const s = sMaxA;
+      const sAdd = steps.length && Math.abs(sMaxA - sMinA) > 1e-6 ? sMinA : null;
+      const kAdd = sAdd === null ? 0 : steps.filter((x) => Math.abs(x - sAdd) < 1e-6).length;
       const sMax = Math.min(1.5 * p.h, 400), clearMin = Math.max(d, 25);
       const len = along - 2 * p.cover;
+      const pos = n > 1 ? steps.reduce((a, st) => (a.push(a[a.length - 1] + st), a), [c1]) : [across / 2];
       return {
-        n, d, c, s, sMax, clear: s - d, clearMin, len, across, along,
+        n, d, c: Math.min(c1, c2), c1, c2, cMin, s, sAdd, kAdd, steps, groups, sMax, clear: sMinA - d, clearMin, len, across, along,
         massPerM: 0.00617 * d * d, mass: n * len / 1000 * 0.00617 * d * d,
-        okMax: !(s > sMax + 1e-9), okClear: !(s - d < clearMin - 1e-9),
-        pos: Array.from({ length: n }, (_, i) => (n > 1 ? c + i * s : across / 2)),
+        okMax: !(sMaxA > sMax + 1e-9), okClear: !(sMinA - d < clearMin - 1e-9),
+        pos,
       };
     };
-    return { x: one(p.nx, p.dsx, p.b, p.l), y: one(p.ny, p.dsy, p.l, p.b), cls: p.rebarClass, cAuto, manual: cSet !== null };
+    return { x: one(p.nx, p.dsx, p.b, p.l), y: one(p.ny, p.dsy, p.l, p.b), cls: p.rebarClass, cAuto, manual: cSet !== null, module: M };
   }
 
   function computeLocal(p, r) {
@@ -1497,12 +1533,13 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     // 5. Проверяемая свая (по расчёту, с учётом допуска на смещение)
     const r = compute(p);
     if (isNum(p.meshEdge) && p.meshEdge > 0) {
-      const dmax = Math.max(p.dsx, p.dsy), cl = p.meshEdge - dmax / 2, need = Math.max(40, dmax);
-      if (cl < need) warn('mesh-edge', 'Мал защитный слой у боковых граней ростверка', `От грани до оси крайнего стержня ${fmtN(p.meshEdge)} мм — защитный слой ${fmtN(cl)} мм < ${fmtN(need)} мм (в фундаментах при бетонной подготовке не менее 40 мм и не менее диаметра стержня — СП 63.13330.2018 п. 10.3.2, табл. 10.1).`, ['meshEdge']);
+      const cAct = Math.min(r.mesh.x.c, r.mesh.y.c);
+      const dmax = Math.max(p.dsx, p.dsy), cl = cAct - dmax / 2, need = Math.max(40, dmax);
+      if (cl < need) warn('mesh-edge', 'Мал защитный слой у боковых граней ростверка', `От грани до оси крайнего стержня ${fmtN(cAct)} мм — защитный слой ${fmtN(cl)} мм < ${fmtN(need)} мм (в фундаментах при бетонной подготовке не менее 40 мм и не менее диаметра стержня — СП 63.13330.2018 п. 10.3.2, табл. 10.1).`, ['meshEdge']);
     }
     for (const [ax, m] of [['X', r.mesh.x], ['Y', r.mesh.y]]) {
       const f = ax === 'X' ? ['nx', 'dsx'] : ['ny', 'dsy'];
-      if (!m.okMax) warn('mesh-max-' + ax, `Шаг стержней сетки вдоль ${ax} больше допустимого`, `${m.n} Ø${fmtN(m.d)}: шаг ${fmtN(m.s)} мм > ${fmtN(m.sMax)} мм (не более 1,5h и 400 мм — СП 63.13330.2018 п. 10.3.8). Увеличьте число стержней.`, f);
+      if (!m.okMax) warn('mesh-max-' + ax, `Шаг стержней сетки вдоль ${ax} больше допустимого`, `${m.n} Ø${fmtN(m.d)}: шаг ${fmtN(Math.max(...m.steps))} мм > ${fmtN(m.sMax)} мм (не более 1,5h и 400 мм — СП 63.13330.2018 п. 10.3.8). Увеличьте число стержней.`, f);
       if (!m.okClear) warn('mesh-clear-' + ax, `Стержни сетки вдоль ${ax} расположены слишком часто`, `${m.n} Ø${fmtN(m.d)}: расстояние в свету ${fmtN(m.clear)} мм < ${fmtN(m.clearMin)} мм (не менее диаметра и 25 мм — СП 63.13330.2018 п. 10.3.5). Уменьшите число стержней или примите больший диаметр.`, f);
     }
     if (r.edgeDesign < 0) {
@@ -1543,8 +1580,8 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     return { errors, warnings, result: errors.length ? null : r };
   }
 
-  const VERSION = '2026-10-18.2'; // должна совпадать с версией страницы и отчёта (index.html, report.js)
-  return { VERSION, compute, validate, suggest, DEFAULTS, CONCRETE, REBAR, BETA_TABLE, betaOf };
+  const VERSION = '2026-10-18.3'; // должна совпадать с версией страницы и отчёта (index.html, report.js)
+  return { VERSION, compute, validate, suggest, DEFAULTS, CONCRETE, REBAR, BETA_TABLE, betaOf, meshSteps };
 });
 
 </script>
@@ -1855,6 +1892,8 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
       s.text(tx, shelfY + 10, sub, { cls: 'sd-t', anchor: anc });
     };
     const f1s = (v) => String(Math.round(v));
+    // «шаг 200» или «шаг 200, доб. 2×150»
+    const stepTxt = (mm) => `шаг ${f1s(mm.s)}${mm.sAdd !== null ? `, доб. ${mm.kAdd}×${f1s(mm.sAdd)}` : ''}`;
     // поз. 1 — на верхнем стержне вдоль X, в правой части; поз. 2 — на стержне вдоль Y слева
     // точки выносок — в середине ячейки, не на пересечении стержней
     const between = (arr, target) => {
@@ -1864,24 +1903,34 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     };
     const yTop = m.x.pos[m.x.n - 1];
     const yBetween = m.x.n > 1 ? (m.x.pos[m.x.n - 1] + m.x.pos[m.x.n - 2]) / 2 : (yTop + y1) / 2;
-    callout(X(between(m.y.pos, p.l * 0.72)), Y(yTop), top - 14, 1, `1 — ${m.x.n} Ø${m.x.d} ${m.cls}`, `вдоль X, шаг ${f1s(m.x.s)}`);
-    callout(X(m.y.pos[Math.min(1, m.y.n - 1)]), Y(yBetween), top - 44, -1, `2 — ${m.y.n} Ø${m.y.d} ${m.cls}`, `вдоль Y, шаг ${f1s(m.y.s)}`);
-    // Размеры: габариты и привязка/шаг первых стержней
+    callout(X(between(m.y.pos, p.l * 0.72)), Y(yTop), top - 14, 1, `1 — ${m.x.n} Ø${m.x.d} ${m.cls}`, `вдоль X, ${stepTxt(m.x)}`);
+    callout(X(m.y.pos[Math.min(1, m.y.n - 1)]), Y(yBetween), top - 44, -1, `2 — ${m.y.n} Ø${m.y.d} ${m.cls}`, `вдоль Y, ${stepTxt(m.y)}`);
+    // Размеры: цепочка привязка — группы шагов («5×200=1000») — привязка, габариты
+    const chain = (mm) => {
+      const pts = [0], labs = [];
+      let at = mm.c1;
+      pts.push(at); labs.push(num(mm.c1));
+      for (const g of mm.groups) { at += g.s * g.cnt; pts.push(at); labs.push(g.cnt > 1 ? `${g.cnt}×${num(g.s)}=${num(g.s * g.cnt)}` : num(g.s)); }
+      pts.push(mm.across); labs.push(num(mm.c2));
+      return { pts, labs };
+    };
     const yB = Y(0);
-    const chainY = [0, m.y.pos[0]].concat(m.y.n > 1 ? [m.y.pos[1]] : []);
-    s.chainH(chainY.map(X), [num(m.y.c), num(m.y.s)], yB + 16, yB);
+    const cy = chain(m.y);
+    s.chainH(cy.pts.map(X), cy.labs, yB + 16, yB);
     s.dimH(X(0), X(p.l), yB + 36, `l = ${num(p.l)}`, yB);
-    const chainX = [0, m.x.pos[0]].concat(m.x.n > 1 ? [m.x.pos[1]] : []);
-    s.chainV(chainX.map(Y), [num(m.x.c), num(m.x.s)], left - 16, X(0));
+    const cx = chain(m.x);
+    s.chainV(cx.pts.map(Y), cx.labs, left - 16, X(0));
     s.dimV(Y(0), Y(p.b), left - 40, `b = ${num(p.b)}`, X(0));
     // Спецификация
     const f1 = (v) => String(Math.round(v * 10) / 10).replace('.', ',');
-    const line = (t, mm) => `${t} — ${mm.n} Ø${mm.d} ${m.cls}, l = ${num(mm.len)}, шаг ${num(mm.s)}${mm.okMax && mm.okClear ? '' : ' (!)'}, ${f1(mm.mass)} кг`;
+    const line = (t, mm) => `${t} — ${mm.n} Ø${mm.d} ${m.cls}, l = ${num(mm.len)}, ${stepTxt(mm)}${mm.okMax && mm.okClear ? '' : ' (!)'}, ${f1(mm.mass)} кг`;
     const ly = yB + 58;
     s.text(left, ly, line('1 — вдоль X', m.x), { cls: 'sd-t', anchor: 'start' });
     s.text(left, ly + 14, line('2 — вдоль Y', m.y), { cls: 'sd-t', anchor: 'start' });
     const H = ly + 24;
-    const caption = `Раскладка нижней сетки: поз. 1 — ${m.x.n} Ø${m.x.d} ${m.cls} вдоль X с шагом ${num(m.x.s)} мм, поз. 2 — ${m.y.n} Ø${m.y.d} ${m.cls} вдоль Y с шагом ${num(m.y.s)} мм; оси крайних стержней — в ${num(m.x.c)} мм от граней (${m.manual ? 'задано' : `защитный слой ${num(p.cover)} мм + d/2`}). Масса ≈ ${f1(m.x.mass + m.y.mass)} кг. Шаг не более ${num(m.x.sMax)} мм (СП 63 п. 10.3.8), в свету не менее d и 25 мм (п. 10.3.5).`;
+    const capStep = (mm) => `с шагом ${num(mm.s)} мм${mm.sAdd !== null ? ` и доборными шагами ${mm.kAdd}×${num(mm.sAdd)} мм у краёв` : ''}`;
+    const edgeTxt = m.x.c1 === m.x.c2 && m.y.c1 === m.y.c2 && m.x.c1 === m.y.c1 ? `${num(m.x.c1)} мм` : `${num(m.y.c1)}/${num(m.y.c2)} мм по X и ${num(m.x.c1)}/${num(m.x.c2)} мм по Y`;
+    const caption = `Раскладка нижней сетки: поз. 1 — ${m.x.n} Ø${m.x.d} ${m.cls} вдоль X ${capStep(m.x)}, поз. 2 — ${m.y.n} Ø${m.y.d} ${m.cls} вдоль Y ${capStep(m.y)}${m.module ? ` (шаги кратны ${m.module} мм)` : ''}; оси крайних стержней — в ${edgeTxt} от граней (не менее ${num(m.x.cMin)} мм — ${m.manual ? 'задано' : `защитный слой ${num(p.cover)} мм + d/2`}). Масса ≈ ${f1(m.x.mass + m.y.mass)} кг. Шаг не более ${num(m.x.sMax)} мм (СП 63 п. 10.3.8), в свету не менее d и 25 мм (п. 10.3.5).`;
     return { svg: s.out(H, 'hm', 'План нижней сетки ростверка'), caption };
   }
 
@@ -22363,8 +22412,9 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     image(o.images && o.images.plan, 'Схема ростверка (начало координат — угол у проверяемой сваи)', 400);
     const ms = r.mesh;
     if (ms) {
-      const mline = (pos, ax, q) => `поз. ${pos} — ${q.n} Ø${q.d} ${ms.cls} вдоль ${ax}, длина ${f(q.len, 0)} мм, шаг ${f(q.s, 0)} мм`;
-      P(`Нижняя сетка: ${mline(1, 'X', ms.x)}; ${mline(2, 'Y', ms.y)}. Оси крайних стержней — в ${f(ms.x.c, 0)} мм от граней ростверка. Шаг стержней не более 1,5h и 400 мм (СП 63.13330.2018 п. 10.3.8) — ${ms.x.okMax && ms.y.okMax ? 'выполнено' : 'НЕ выполнено'}; расстояние в свету не менее d и 25 мм (п. 10.3.5) — ${ms.x.okClear && ms.y.okClear ? 'выполнено' : 'НЕ выполнено'}.`, { keepNext: true });
+      const chainTxt = (q) => [q.c1, ...q.groups.map((g) => (g.cnt > 1 ? `${g.cnt}×${f(g.s, 0)}` : f(g.s, 0))), q.c2].map((v) => (typeof v === 'number' ? f(v, 0) : v)).join(' + ');
+      const mline = (pos, ax, q) => `поз. ${pos} — ${q.n} Ø${q.d} ${ms.cls} вдоль ${ax}, длина ${f(q.len, 0)} мм, шаг ${f(q.s, 0)} мм${q.sAdd !== null ? `, доборные ${q.kAdd}×${f(q.sAdd, 0)} мм` : ''} (раскладка ${chainTxt(q)} = ${f(q.across, 0)} мм)`;
+      P(`Нижняя сетка: ${mline(1, 'X', ms.x)}; ${mline(2, 'Y', ms.y)}.${ms.module ? ` Шаги стержней приняты кратными ${ms.module} мм, привязки крайних стержней — не менее ${f(ms.x.cMin, 0)} мм от граней ростверка.` : ` Оси крайних стержней — в ${f(ms.x.c, 0)} мм от граней ростверка.`} Шаг стержней не более 1,5h и 400 мм (СП 63.13330.2018 п. 10.3.8) — ${ms.x.okMax && ms.y.okMax ? 'выполнено' : 'НЕ выполнено'}; расстояние в свету не менее d и 25 мм (п. 10.3.5) — ${ms.x.okClear && ms.y.okClear ? 'выполнено' : 'НЕ выполнено'}.`, { keepNext: true });
       image(o.images && o.images.mesh, 'Раскладка нижней сетки ростверка', 400);
     }
 
@@ -22749,7 +22799,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     });
   }
 
-  const VERSION = '2026-10-18.2';
+  const VERSION = '2026-10-18.3';
   return { VERSION, create, createMany, build, omml, injectMath, FONT };
 });
 
@@ -22759,7 +22809,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   'use strict';
   const C = window.RostverkCalc;
   // Страница и подключаемые файлы ядра должны быть одной версии: иначе часть расчёта не отобразится
-  const APP_VERSION = '2026-10-18.2';
+  const APP_VERSION = '2026-10-18.3';
   function banner(msg) {
     let el = document.getElementById('appBanner');
     if (!el) {
@@ -22847,7 +22897,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       { k: 'ny', cell: 'C60', label: 'Количество стержней вдоль Y (на длину l)', sym: 'ny', u: 'шт' },
       { k: 'e0', cell: 'C64', label: 'Смещение свай от колонны (увеличение плеча момента)', sym: 'e0', u: 'мм', hint: 'СП 45.13330.2017 табл. 12.1: 0,2d–0,3d; 0 — без учёта' },
       { k: 'cover', cell: 'C65', label: 'Защитный слой до торца стержней сетки', sym: 'aт', u: 'мм' },
-      { k: 'meshEdge', label: 'От грани ростверка до оси крайнего стержня сетки', sym: 'aб', u: 'мм', optional: true, autoFrom: 'meshEdgeAuto', autoLabel: 'слой + d/2', autoNote: 'защитный слой + d/2', hint: 'Для раскладки сетки и проверки шага. По умолчанию — защитный слой + d/2; очистите поле, чтобы вернуть. Защитный слой — не менее 40 мм и d (СП 63 табл. 10.1)' },
+      { k: 'meshEdge', label: 'От грани ростверка до оси крайнего стержня сетки, не менее', sym: 'aб', u: 'мм', optional: true, autoFrom: 'meshEdgeAuto', autoLabel: 'слой + d/2', autoNote: 'защитный слой + d/2', hint: 'Наименьшая привязка для раскладки сетки: фактическая подбирается так, чтобы шаги были кратны модулю. По умолчанию — защитный слой + d/2; очистите поле, чтобы вернуть. Защитный слой — не менее 40 мм и d (СП 63 табл. 10.1)' },
+      { k: 'meshModule', label: 'Шаг стержней нижней сетки', opts: [['Кратный 50 мм', 50], ['Кратный 100 мм', 100], ['Равномерно, без округления', 0]], hint: 'Шаги кратны модулю; остаток уходит в привязки крайних стержней, а если он велик — в доборные шаги у краёв (на модуль меньше основного). «Равномерно» — привязка точно как задана, шаг дробный' },
       { k: 'lanReduction', label: 'Снижение длины анкеровки lan', opts: [['Нет', 0], ['10 %', 0.1], ['20 %', 0.2], ['30 % (максимум)', 0.3]], hint: 'СП 63 п. 10.3.25: за загиб концов (лапки) и обжатие бетона от реакции сваи — не более 30 %' },
       { k: 'anchorMethod', label: 'Проверка наклонного сечения по моменту', opts: ['СП 63 п. 8.1.35', 'Пособие п. 2.15'], hint: 'В итог входит выбранный метод, второй показывается для сравнения. СП 63: полный момент по грани колонны и полная длина анкеровки; Пособие: при Q ≤ 0,6·Rbt·b·h0 — обеспечена, иначе анкеровка у крайнего ряда свай по ф. (27)–(31)' },
       { k: 'eta1', cell: 'C67', label: 'Коэффициент сцепления арматуры с бетоном', sym: 'η1', hint: 'СП 63 п. 10.3.24: 2,5 — горячекатаная периодического профиля' },
@@ -23326,7 +23377,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       $('schemeMesh').innerHTML = sc.mesh.svg;
       $('schemeMeshCap').textContent = sc.mesh.caption;
       const m = r.mesh, bad = !(m.x.okMax && m.x.okClear && m.y.okMax && m.y.okClear);
-      $('meshSum').textContent = `${m.x.n}Ø${m.x.d} + ${m.y.n}Ø${m.y.d}${bad ? ' — шаг!' : ''}`;
+      const st = (q) => `${q.n}Ø${q.d} ш.${fmt(q.s, 0)}${q.sAdd !== null ? `/${fmt(q.sAdd, 0)}` : ''}`;
+      $('meshSum').textContent = `${st(m.x)} + ${st(m.y)}${bad ? ' — шаг!' : ''}`;
       $('meshSum').style.color = bad ? 'var(--bad)' : '';
     }
     $('schemeCol').innerHTML = sc.column.svg;
