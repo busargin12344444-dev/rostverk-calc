@@ -280,6 +280,46 @@ dialog.pick .f input { padding: 6px 8px; border: 1px solid var(--line); border-r
 .pick-list label { display: flex; gap: 8px; align-items: center; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; font-size: 13px; }
 .pick-list .st { margin-left: auto; font-size: 12px; color: var(--muted); }
 dialog.issues::backdrop { background: rgb(10 14 20 / 0.5); }
+/* Пошаговые пояснения подробного расчёта (explain.js) */
+.xs-v { border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; font-size: 14px; }
+.xs-v.ok { background: var(--ok-bg); border-left: 4px solid var(--ok); }
+.xs-v.bad { background: var(--bad-bg); border-left: 4px solid var(--bad); }
+.xs-v.na { background: var(--accent-soft); border-left: 4px solid var(--muted); }
+.xs-v span { color: var(--muted); font-size: 13px; }
+.xs-list { counter-reset: xs; list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.xs-list > li.xs { counter-increment: xs; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px 10px 44px; position: relative; font-size: 13.5px; line-height: 1.5; min-width: 0; }
+.xs-list > li.xs::before { content: counter(xs); position: absolute; left: 12px; top: 9px; width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 12px; font-weight: 600; display: flex; align-items: center; justify-content: center; }
+.xs-t { font-weight: 600; margin-bottom: 4px; }
+.xs p { margin: 4px 0; }
+.xs-note { color: var(--muted); font-size: 12.5px; }
+.xs-eq { font-family: var(--font-mono); font-size: 12.5px; padding: 3px 0 3px 10px; border-left: 2px solid var(--line); margin: 4px 0; overflow-wrap: anywhere; }
+.xs-eq .xs-f { font-style: italic; }
+.xs-eq .xs-r b { color: var(--ink); }
+.xs-eq .xs-ref { display: block; font-family: var(--font-sans, inherit); color: var(--muted); font-size: 11.5px; }
+.xs-eq sub, .xs-eq sup, .xf sub, .xf sup { font-size: 75%; }
+.xf { font-style: italic; white-space: nowrap; }
+.xs-k { font-weight: 600; font-family: var(--font-mono); }
+.xs-k.ok { color: var(--ok); } .xs-k.bad { color: var(--bad); }
+.xs-vars { margin: 4px 0; padding-left: 18px; }
+.xs-vars li { margin: 2px 0; }
+.xs-vars li.gov { background: var(--accent-soft); border-radius: 4px; }
+.xs-tbl td.l, .xs-tbl th.l { min-width: 6em; }
+.xs-tbl tr.gov td { background: var(--accent-soft); }
+.xs-fig { margin: 6px 0 0; }
+.xs-fig svg { max-width: 100%; height: auto; display: block; }
+.xs-fig figcaption { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.xg-slab { fill: var(--slab); stroke: none; } .xg-edge { stroke: var(--accent); stroke-width: 3; }
+.xg-pile { fill: var(--pile); stroke: var(--slab-line); stroke-width: 1; } .xg-cont { stroke: var(--bad); stroke-width: 2.5; stroke-dasharray: 6 3; }
+.xg-ecc { stroke: var(--ink); stroke-width: 1.2; stroke-dasharray: 2 2; } .xg-pc { fill: var(--ink); } .xg-gc { fill: var(--bad); }
+.xg-t { font-size: 12px; fill: var(--ink); font-weight: 600; } .xg-s { font-size: 11px; fill: var(--accent); }
+.lg-c, .lg-p, .lg-g { display: inline-block; vertical-align: middle; margin-right: 3px; }
+.lg-c { width: 16px; border-top: 2.5px dashed var(--bad); } .lg-p { width: 7px; height: 7px; border-radius: 50%; background: var(--ink); } .lg-g { width: 8px; height: 8px; border-radius: 50%; background: var(--bad); }
+details.xs-more { border: 1px dashed var(--line); border-radius: 8px; }
+details.xs-more > summary { cursor: pointer; padding: 6px 10px; font-size: 12.5px; color: var(--muted); list-style: none; }
+details.xs-more > summary::-webkit-details-marker { display: none; }
+details.xs-more > summary::before { content: "▸ "; } details.xs-more[open] > summary::before { content: "▾ "; }
+.xs-more-b { padding: 0 10px 10px; display: flex; flex-direction: column; gap: 8px; }
+
 /* Ссылки на пункты норм и окно с текстом пункта */
 a.nref { color: var(--accent); text-decoration: underline dotted; text-underline-offset: 2px; cursor: pointer; }
 a.nref:hover, a.nref:focus-visible { text-decoration-style: solid; }
@@ -1623,7 +1663,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     return { errors, warnings, result: errors.length ? null : r };
   }
 
-  const VERSION = '2026-10-20.2'; // должна совпадать с версией страницы и отчёта (index.html, report.js)
+  const VERSION = '2026-10-20.3'; // должна совпадать с версией страницы и отчёта (index.html, report.js)
   return { VERSION, compute, validate, suggest, DEFAULTS, CONCRETE, REBAR, BETA_TABLE, betaOf, meshSteps };
 });
 
@@ -22842,7 +22882,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     });
   }
 
-  const VERSION = '2026-10-20.2';
+  const VERSION = '2026-10-20.3';
   return { VERSION, create, createMany, build, omml, injectMath, FONT };
 });
 
@@ -23193,11 +23233,505 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
 </script>
 <script>
+// Пошаговые пояснения к подробному расчёту: что проверяется и зачем, формула со ссылкой на пункт,
+// подстановка чисел, результат. Ссылки «п. …», «ф. (…)» страница делает кликабельными (norms.js).
+// Формулы записаны линейно: _{} — нижний индекс, ^{} — верхний (как в norms.js).
+(function (root, factory) {
+  if (typeof module === 'object' && module.exports) module.exports = factory(require('./norms.js'));
+  else root.RostverkExplain = factory(root.RostverkNorms);
+})(typeof self !== 'undefined' ? self : this, function (N) {
+  'use strict';
+
+  const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const math = N && N.math ? N.math : esc;
+  // Число по-русски: запятая, без лишних нулей; digits — знаков после запятой (по умолчанию — по величине)
+  function n(v, digits) {
+    if (!isNum(v)) return '—';
+    let d = digits;
+    if (d === undefined) { const a = Math.abs(v); d = a >= 1000 ? 0 : a >= 100 ? 1 : a >= 10 ? 2 : 3; }
+    const s = v.toLocaleString('ru-RU', { minimumFractionDigits: 0, maximumFractionDigits: d });
+    return s.replace(/ | /g, ' ').replace(/^-/, '−');
+  }
+  const k3 = (v) => (isNum(v) ? v.toLocaleString('ru-RU', { minimumFractionDigits: 3, maximumFractionDigits: 3 }) : '—');
+  const sg = (v, d) => (v < 0 ? `(${n(v, d)})` : n(v, d)); // отрицательное в подстановке — в скобках
+
+  // ---------- Разметка ----------
+  const F = (s) => `<span class="xf">${math(s)}</span>`;                 // формула в строке текста
+  const P = (html) => `<p>${html}</p>`;
+  const note = (html) => `<p class="xs-note">${html}</p>`;
+  // Строка расчёта: формула = подстановка = результат; ref — пункт/формула нормы
+  function eq(formula, subst, result, ref) {
+    return `<div class="xs-eq"><span class="xs-f">${math(formula)}</span>${subst ? `<span class="xs-s"> = ${math(subst)}</span>` : ''}`
+      + `${result ? `<span class="xs-r"> = <b>${math(result)}</b></span>` : ''}${ref ? `<span class="xs-ref">${esc(ref)}</span>` : ''}</div>`;
+  }
+  const step = (title, ...parts) => `<li class="xs"><div class="xs-t">${title}</div>${parts.filter(Boolean).join('')}</li>`;
+  const steps = (list) => `<ol class="xs-list">${list.filter(Boolean).join('')}</ol>`;
+  const more = (title, html) => `<details class="xs-more"><summary>${esc(title)}</summary><div class="xs-more-b">${html}</div></details>`;
+  function verdict(K, what, extra) {
+    if (!isNum(K)) return `<div class="xs-v na"><b>${what}</b>${extra ? `<span>${extra}</span>` : ''}</div>`;
+    const ok = K <= 1 + 1e-9;
+    return `<div class="xs-v ${ok ? 'ok' : 'bad'}"><b>${what}: K = ${k3(K)} ${ok ? '≤' : '>'} 1 — ${ok ? 'прочность обеспечена' : 'прочность НЕ обеспечена'}</b>${extra ? `<span>${extra}</span>` : ''}</div>`;
+  }
+  const kLine = (label, K) => `<span class="xs-k ${isNum(K) && K > 1 ? 'bad' : 'ok'}">${label} = ${k3(K)}</span>`;
+  function tbl(head, rows, gov) {
+    return `<div class="tbl-wrap"><table class="dt xs-tbl"><tr>${head.map((h, i) => `<th class="${i ? '' : 'l'}">${math(h)}</th>`).join('')}</tr>`
+      + rows.map((row, ri) => `<tr class="${ri === gov ? 'gov' : ''}">${row.map((c, i) => `<td class="${i ? 'v' : 'l'}">${c}</td>`).join('')}</tr>`).join('')
+      + '</table></div>';
+  }
+
+  // Общие исходные величины
+  function materials(r) {
+    const p = r.input, g = p.gammaB1;
+    const RbtT = r.Rbt / g, RbT = r.Rb / g;
+    return {
+      Rbt: eq('R_{bt} = R_{bt,табл}·γ_{b1}', `${n(RbtT, 3)}·${n(g, 2)}`, `${n(r.Rbt, 3)} МПа = ${n(r.Rbt / 10, 4)} кН/см^{2}`, 'СП 63 табл. 6.8, п. 6.1.12'),
+      Rb: eq('R_{b} = R_{b,табл}·γ_{b1}', `${n(RbT, 1)}·${n(g, 2)}`, `${n(r.Rb, 2)} МПа = ${n(r.Rb / 10, 3)} кН/см^{2}`, 'СП 63 табл. 6.8, п. 6.1.12'),
+      gText: math(`γ_{b1} = ${n(g, 2)} — ${g < 1 ? 'длительное действие нагрузки' : 'кратковременное действие нагрузки'} (СП 63 п. 6.1.12)`),
+    };
+  }
+  const shiftWord = (s) => (s > 0 ? 'внутрь ростверка' : 'к краям ростверка');
+
+  // =====================================================================
+  // Продавливание сваей по СП 63 (пп. 8.1.46–8.1.52)
+  // =====================================================================
+  const VAR_TEXT = {
+    'Замкн.': 'замкнутый — обходит сваю со всех сторон',
+    'L-образ.': 'Г-образный — открыт к обоим краям у угла (X = 0 и Y = 0)',
+    'П (X=0)': 'П-образный — открыт к краю X = 0',
+    'П (Y=0)': 'П-образный — открыт к краю Y = 0',
+  };
+  const varText = (name) => VAR_TEXT[name] || `незамкнутый — ${name.replace('Открыт к', 'открыт к краям')}`;
+
+  // Схема определяющего контура (план, мм): край ростверка, свая, контур, центры, эксцентриситеты
+  function contourSvg(r, v, xc, yc) {
+    const p = r.input, bp = r.bp, L = p.l, B = p.b;
+    const segs = v.segs.map((s) => s.map((c) => c * 10)); // см → мм
+    const xs = [0, xc - bp / 2, xc + bp / 2, ...segs.flatMap((s) => [s[0], s[2]])];
+    const ys = [0, yc - bp / 2, yc + bp / 2, ...segs.flatMap((s) => [s[1], s[3]])];
+    const pad = 0.12 * Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys), 400);
+    const x0 = Math.min(...xs) - pad, x1 = Math.min(Math.max(...xs) + pad * 1.6, L + pad), y0 = Math.min(...ys) - pad, y1 = Math.min(Math.max(...ys) + pad * 1.6, B + pad);
+    const W = 360, k = W / (x1 - x0), H = Math.round((y1 - y0) * k);
+    const X = (x) => ((x - x0) * k).toFixed(1), Y = (y) => ((y1 - y) * k).toFixed(1);
+    let s = '';
+    // ростверк (видимая часть) и свободные края
+    s += `<rect x="${X(Math.max(0, x0))}" y="${Y(Math.min(B, y1))}" width="${((Math.min(L, x1) - Math.max(0, x0)) * k).toFixed(1)}" height="${((Math.min(B, y1) - Math.max(0, y0)) * k).toFixed(1)}" class="xg-slab"/>`;
+    if (x0 < 0) s += `<line x1="${X(0)}" y1="${Y(Math.max(0, y0))}" x2="${X(0)}" y2="${Y(Math.min(B, y1))}" class="xg-edge"/>`;
+    if (y0 < 0) s += `<line x1="${X(Math.max(0, x0))}" y1="${Y(0)}" x2="${X(Math.min(L, x1))}" y2="${Y(0)}" class="xg-edge"/>`;
+    if (x1 > L) s += `<line x1="${X(L)}" y1="${Y(Math.max(0, y0))}" x2="${X(L)}" y2="${Y(Math.min(B, y1))}" class="xg-edge"/>`;
+    if (y1 > B) s += `<line x1="${X(Math.max(0, x0))}" y1="${Y(B)}" x2="${X(Math.min(L, x1))}" y2="${Y(B)}" class="xg-edge"/>`;
+    // свая
+    s += `<rect x="${X(xc - bp / 2)}" y="${Y(yc + bp / 2)}" width="${(bp * k).toFixed(1)}" height="${(bp * k).toFixed(1)}" class="xg-pile"/>`;
+    // контур
+    for (const [a, b, c, d] of segs) s += `<line x1="${X(a)}" y1="${Y(b)}" x2="${X(c)}" y2="${Y(d)}" class="xg-cont"/>`;
+    // центры и эксцентриситет
+    const gx = v.x0 * 10, gy = v.y0 * 10;
+    if (Math.abs(gx - xc) > 1 || Math.abs(gy - yc) > 1) s += `<line x1="${X(xc)}" y1="${Y(yc)}" x2="${X(gx)}" y2="${Y(gy)}" class="xg-ecc"/>`;
+    s += `<circle cx="${X(xc)}" cy="${Y(yc)}" r="3.5" class="xg-pc"/><circle cx="${X(gx)}" cy="${Y(gy)}" r="4" class="xg-gc"/>`;
+    s += `<text x="${(+X(xc) + 6).toFixed(1)}" y="${(+Y(yc) - 6).toFixed(1)}" class="xg-t">F</text>`;
+    s += `<text x="${(+X(gx) + 6).toFixed(1)}" y="${(+Y(gy) - 6).toFixed(1)}" class="xg-t">ЦТ</text>`;
+    if (x0 < 0) s += `<text x="${(+X(0) + 3).toFixed(1)}" y="${(H - 4)}" class="xg-s">X = 0</text>`;
+    if (y0 < 0) s += `<text x="${(W - 4)}" y="${(+Y(0) - 4).toFixed(1)}" class="xg-s" text-anchor="end">Y = 0</text>`;
+    return `<figure class="xs-fig"><svg viewBox="0 0 ${W} ${H}" width="${W}" role="img" aria-label="Расчётный контур продавливания сваей">${s}</svg>`
+      + `<figcaption><span class="lg-c"></span>расчётный контур «${esc(v.name)}» на 0,5·h₀ от граней сваи · <span class="lg-p"></span>центр сваи (точка приложения F) · <span class="lg-g"></span>центр тяжести контура · штрих — эксцентриситет e₀</figcaption></figure>`;
+  }
+
+  function sp63(r) {
+    const p = r.input, sp = r.sp63;
+    const useSw = p.useTransverse === true || p.useTransverse === 'Да';
+    const useFe0 = p.useFe0 === true || p.useFe0 === 'Да';
+    const mat = materials(r);
+    const h0 = r.h0, d = h0 / 2;           // мм
+    const bp = r.bp;
+    const xc = isNum(sp.xc) ? sp.xc : r.xc, yc = isNum(sp.yc) ? sp.yc : r.yc; // центр сваи (мм) в определяющем направлении допуска
+    const s = sp.shiftText && sp.shiftText.startsWith('к краям') ? -1 : 1;
+    const corner = p.pilePosition === 'Угловая';
+    const out = [];
+    if (sp.beam) {
+      out.push(verdict(undefined, 'Продавливание сваей не рассматривается', 'Ни один расчётный контур не помещается в ростверк: свая перекрывает его ширину. Ростверк здесь работает как балка — прочность проверяется по поперечной силе (СП 63 пп. 8.1.32–8.1.33, блок «Поперечная сила и изгиб»).'));
+      return out.join('');
+    }
+    const v = sp.variants[sp.governingIndex];
+    out.push(verdict(useSw && isNum(sp.Ksw) && !(sp.K <= 1) ? sp.Ksw : sp.K, 'Продавливание сваей по СП 63',
+      `Определяет ${varText(v.name)} контур; смещение сваи — ${esc(sp.shiftText || '')}.`));
+
+    const list = [];
+    // 1. Что проверяем
+    list.push(step('Что проверяем',
+      P(`Свая передаёт на ростверк снизу сосредоточенную силу ${F(`F = F_{1} = ${n(p.F1)} кН`)}. Ростверк может разрушиться, если бетон «срежется» по поверхности пирамиды, расходящейся от граней сваи вверх. По СП 63 п. 8.1.46 это проверяют по <b>расчётному контуру</b> — линии на расстоянии ${F('0,5·h_{0}')} от граней сваи: касательные усилия по сечению «контур × h₀» должен воспринять бетон (${F('R_{bt}')}).`),
+      P(`Условие прочности — ф. (8.95) п. 8.1.49: сила и моменты, приходящиеся на контур, делятся на то, что бетон может воспринять. Сумма — коэффициент использования ${F('K')}, должно быть ${F('K ≤ 1')}.`)));
+    // 2. Исходные величины
+    const dShift = s > 0 ? '+' : '−';
+    list.push(step('Исходные величины',
+      eq('h_{0} = h − a', `${n(p.h)} − ${n(p.a)}`, `${n(h0)} мм = ${n(h0 / 10)} см`, 'рабочая высота, СП 63 п. 8.1.47'),
+      mat.Rbt, note(mat.gText),
+      p.pileShape === 'Круглая'
+        ? eq('b_{p} = 0,89·d', `0,89·${n(p.pileSize)}`, `${n(bp)} мм`, 'круглая свая → квадрат той же площади, Пособие п. 1.4')
+        : P(`Свая квадратная, сторона ${F(`b_{p} = ${n(bp)} мм`)}.`),
+      P(`Центр сваи с учётом допуска на смещение (${esc(sp.shiftText || shiftWord(s))}, ${F(`ΔX = ${n(r.dX)}, ΔY = ${n(r.dY)} мм`)}, СП 24 п. 8.3):`),
+      eq('x_{c} = x_{св} ' + dShift + ' ΔX', `${n(p.xPile)} ${dShift} ${n(r.dX)}`, `${n(xc)} мм`),
+      eq('y_{c} = y_{св} ' + dShift + ' ΔY', `${n(p.yPile)} ${dShift} ${n(r.dY)}`, `${n(yc)} мм`),
+      P(`Моменты в голове сваи: ${F(`M_{св,X} = ${n(p.MXpile)}`)}, ${F(`M_{св,Y} = ${n(p.MYpile)} кН·м`)}; при продавливании учитывается их доля ${F(`k_{M} = ${n(p.kM, 2)}`)} (п. 8.1.46: половина момента — на продавливание, половина — на изгиб).`)));
+    // 3. Варианты контура
+    const near = h0 + bp / 2;
+    const reason = (q) => {
+      if (q.active) return `<b>действует</b>, ${kLine('K', q.Kb)}`;
+      if (q.off === 'edge') {
+        const segs = q.segs.map((t) => t.map((c) => c * 10));
+        const minX = Math.min(...segs.flatMap((t) => [t[0], t[2]])), minY = Math.min(...segs.flatMap((t) => [t[1], t[3]]));
+        const maxX = Math.max(...segs.flatMap((t) => [t[0], t[2]])), maxY = Math.max(...segs.flatMap((t) => [t[1], t[3]]));
+        const where = minX < -0.5 ? `за край X = 0 на ${n(-minX, 0)} мм` : minY < -0.5 ? `за край Y = 0 на ${n(-minY, 0)} мм`
+          : maxX > p.l + 0.5 ? `за край X = l на ${n(maxX - p.l, 0)} мм` : maxY > p.b + 0.5 ? `за край Y = b на ${n(maxY - p.b, 0)} мм` : 'за край ростверка';
+        return `не действует — контур выходит ${where}`;
+      }
+      if (q.off === 'far') {
+        const gx = xc - bp / 2, gy = yc - bp / 2;
+        const parts = [];
+        if (/X=0|L-/.test(q.name) && gx >= near) parts.push(`X = 0: ${n(gx, 0)} мм`);
+        if (/Y=0|L-/.test(q.name) && gy >= near) parts.push(`Y = 0: ${n(gy, 0)} мм`);
+        return `не действует — свая не у края (от грани сваи до края ${parts.join(', ') || '—'} ≥ h₀ + 0,5·b_p = ${n(near, 0)} мм)`;
+      }
+      return 'не действует — для крайней сваи края X не рассматриваются';
+    };
+    list.push(step('Какие контуры рассматриваются',
+      P(`По п. 8.1.46, если свая у края или угла, рассматривают два вида контура: <b>замкнутый</b> вокруг сваи и <b>незамкнутый</b>, который упирается в край ростверка; принимается худший. Контур действует, только если целиком лежит в ростверке. Незамкнутый контур от края строится, если свая у этого края: от грани сваи до края меньше ${F('h_{0} + 0,5·b_{p}')} = ${n(near, 0)} мм.`),
+      `<ul class="xs-vars">${sp.variants.map((q, i) => `<li class="${i === sp.governingIndex ? 'gov' : ''}"><b>${esc(q.name)}</b> (${esc(varText(q.name))}): ${reason(q)}${i === sp.governingIndex ? ' ← <b>определяющий</b>' : ''}</li>`).join('')}</ul>`,
+      contourSvg(r, v, xc, yc)));
+    // 4. Геометрия определяющего контура
+    const segs = v.segs;
+    const segRows = segs.map(([x1, y1, x2, y2], i) => {
+      const Ls = Math.hypot(x2 - x1, y2 - y1), cx = (x1 + x2) / 2, cy = (y1 + y2) / 2;
+      return [`${i + 1}`, `(${n(x1, 1)}; ${n(y1, 1)}) → (${n(x2, 1)}; ${n(y2, 1)})`, n(Ls, 1), n(cx, 1), n(cy, 1)];
+    });
+    const sumL = segs.map(([x1, y1, x2, y2]) => n(Math.hypot(x2 - x1, y2 - y1), 1)).join(' + ');
+    const sumLx = segs.map(([x1, y1, x2, y2]) => `${n(Math.hypot(x2 - x1, y2 - y1), 1)}·${n((x1 + x2) / 2, 1)}`).join(' + ');
+    const sumLy = segs.map(([x1, y1, x2, y2]) => `${n(Math.hypot(x2 - x1, y2 - y1), 1)}·${n((y1 + y2) / 2, 1)}`).join(' + ');
+    list.push(step(`Определяющий контур «${esc(v.name)}»: длина и центр тяжести`,
+      P(`Контур состоит из ${segs.length} ${segs.length === 1 ? 'участка' : 'участков'} (координаты в см, начало — угол ростверка у проверяемой сваи):`),
+      tbl(['Участок', 'Начало → конец (x; y)', 'L_{i}, см', 'x_{i}, см', 'y_{i}, см'], segRows),
+      eq('u = ∑L_{i}', sumL, `${n(v.u, 1)} см`, 'периметр контура, п. 8.1.47'),
+      eq('x_{0} = (∑L_{i}·x_{i})/(∑L_{i})', `(${sumLx})/${n(v.u, 1)}`, `${n(v.x0, 2)} см`, 'ф. (8.99)'),
+      eq('y_{0} = (∑L_{i}·y_{i})/(∑L_{i})', `(${sumLy})/${n(v.u, 1)}`, `${n(v.y0, 2)} см`, 'ф. (8.99)'),
+      P(`Сила сваи приложена в её центре, а не в центре тяжести контура — эксцентриситет:`),
+      eq('e_{0X} = x_{c} − x_{0}', `${n(xc / 10, 2)} − ${n(v.x0, 2)}`, `${n(v.e0X, 2)} см`),
+      eq('e_{0Y} = y_{c} − y_{0}', `${n(yc / 10, 2)} − ${n(v.y0, 2)}`, `${n(v.e0Y, 2)} см`),
+      Math.abs(v.e0X) + Math.abs(v.e0Y) < 0.01 ? note('Контур симметричен относительно сваи — e₀ = 0, дополнительного момента нет.') : ''));
+    // 5. Предельная сила
+    const RbtCm = r.Rbt / 10;
+    list.push(step('Сила, которую воспринимает бетон по контуру',
+      eq('F_{b,ult} = R_{bt}·A_{b} = R_{bt}·u·h_{0}', `${n(RbtCm, 4)}·${n(v.u, 1)}·${n(h0 / 10)}`, `${n(v.Fb, 1)} кН`, 'ф. (8.88), (8.89)'),
+      eq('F/F_{b,ult}', `${n(p.F1)}/${n(v.Fb, 1)}`, k3(v.FFb))));
+    // 6. Моменты
+    const mxv = v.WX > 0 ? v.IX / v.WX : 0, myv = v.WY > 0 ? v.IY / v.WY : 0;
+    const MXp = p.kM * p.MXpile, MYp = p.kM * p.MYpile;
+    list.push(step('Моменты, действующие на контур, и что воспринимает бетон',
+      P(`Момент сопротивления контура — по п. 8.1.51: момент инерции линий контура относительно осей через его центр тяжести, делённый на наибольшее расстояние до контура.`),
+      eq('W_{bX} = I_{bX}/x_{max}', `${n(v.IX, 0)}/${n(mxv, 2)}`, `${n(v.WX, 1)} см^{2}`, 'ф. (8.98)'),
+      eq('W_{bY} = I_{bY}/y_{max}', `${n(v.IY, 0)}/${n(myv, 2)}`, `${n(v.WY, 1)} см^{2}`, 'ф. (8.98)'),
+      eq('M_{bX,ult} = R_{bt}·W_{bX}·h_{0}', `${n(RbtCm, 4)}·${n(v.WX, 1)}·${n(h0 / 10)}·10^{−2}`, `${n(v.MbX, 1)} кН·м`, 'ф. (8.94)'),
+      eq('M_{bY,ult} = R_{bt}·W_{bY}·h_{0}', `${n(RbtCm, 4)}·${n(v.WY, 1)}·${n(h0 / 10)}·10^{−2}`, `${n(v.MbY, 1)} кН·м`, 'ф. (8.94)'),
+      P(useFe0
+        ? `Расчётные моменты: доля момента в голове сваи плюс момент от внецентренного приложения силы ${F('F·e_{0}')} (п. 8.1.46):`
+        : `Расчётные моменты: только доля момента в голове сваи — момент ${F('F·e_{0}')} отключён в исходных данных (поле «Учитывать момент F·e0»).`),
+      eq(`M_{X} = k_{M}·M_{св,X}${useFe0 ? ' + F·e_{0X}' : ''}`, `${n(p.kM, 2)}·${sg(p.MXpile)}${useFe0 ? ` + ${n(p.F1)}·${sg(v.e0X, 2)}·10^{−2}` : ''}`, `${n(v.MX, 1)} кН·м`),
+      eq(`M_{Y} = k_{M}·M_{св,Y}${useFe0 ? ' + F·e_{0Y}' : ''}`, `${n(p.kM, 2)}·${sg(p.MYpile)}${useFe0 ? ` + ${n(p.F1)}·${sg(v.e0Y, 2)}·10^{−2}` : ''}`, `${n(v.MY, 1)} кН·м`),
+      MXp === 0 && MYp === 0 && !useFe0 ? note('Моментов нет — проверяется только сила.') : ''));
+    // 7. Условие прочности
+    const mxr = v.MbX > 0 ? Math.abs(v.MX) / v.MbX : (Math.abs(v.MX) > 0 ? Infinity : 0);
+    const myr = v.MbY > 0 ? Math.abs(v.MY) / v.MbY : (Math.abs(v.MY) > 0 ? Infinity : 0);
+    const mSum = mxr + myr, lim = p.kLim * v.FFb, capped = mSum > lim + 1e-9;
+    list.push(step('Проверка прочности (бетон)',
+      eq('(|M_{X}|)/(M_{bX,ult}) + (|M_{Y}|)/(M_{bY,ult})', `${n(Math.abs(v.MX), 1)}/${n(v.MbX, 1)} + ${n(Math.abs(v.MY), 1)}/${n(v.MbY, 1)}`, n(mSum, 3)),
+      P(`Моментный член принимают не более ${F(`${n(p.kLim, 2)}·F/F_{b,ult} = ${n(p.kLim, 2)}·${k3(v.FFb)} = ${n(lim, 3)}`)} (п. 8.1.49, условие после ф. (8.95)) — ${capped ? `<b>ограничение действует</b>, принимаем ${n(lim, 3)}` : 'ограничение не действует'}.`),
+      eq('K = F/F_{b,ult} + (моментный член)', `${k3(v.FFb)} + ${n(v.mTerm, 3)}`, k3(v.Kb), 'ф. (8.95)'),
+      `<p>${kLine('K', v.Kb)} ${v.Kb <= 1 ? '≤ 1 — прочность бетона по этому контуру обеспечена.' : '> 1 — прочности бетона недостаточно' + (useSw ? ', учитывается поперечная арматура (ниже).' : '.')}</p>`));
+    // 8. Поперечная арматура
+    if (useSw) {
+      const swOk = v.Fsw >= 0.25 * v.Fb;
+      list.push(step('Поперечная арматура (пп. 8.1.48, 8.1.50)',
+        P(`${esc(p.swClass)} Ø${n(p.dsw)} мм, шаг вдоль контура ${F(`s_{w} = ${n(p.sw)} мм`)}, рядов в полосе ±0,5·h₀ — ${n(p.nr)}.`),
+        eq('q_{sw} = (R_{sw}·A_{sw})/(s_{w})', `(${n(r.Rsw / 10, 1)}·${n(p.nr)}·π·${n(p.dsw / 10, 2)}^{2}/4)/${n(p.sw / 10, 1)}`, `${n(v.qsw, 3)} кН/см`, 'ф. (8.92)'),
+        eq('F_{sw,ult} = 0,8·q_{sw}·u', `0,8·${n(v.qsw, 3)}·${n(v.u, 1)}`, `${n(v.Fsw, 1)} кН`, 'ф. (8.91)'),
+        P(`Арматура учитывается при ${F('F_{sw,ult} ≥ 0,25·F_{b,ult}')} = ${n(0.25 * v.Fb, 1)} кН — ${swOk ? 'выполняется' : '<b>не выполняется</b>, арматура в расчёте не учитывается'}; ${F('F_{b,ult} + F_{sw,ult} ≤ 2·F_{b,ult}')}.`),
+        eq('F_{ult}', '', `${n(v.Fult, 1)} кН`),
+        eq('M_{X,ult} = M_{bX,ult} + 0,8·q_{sw}·W_{bX} ≤ 2·M_{bX,ult}', '', `${n(v.MXult, 1)} кН·м`, 'ф. (8.97)'),
+        eq('M_{Y,ult}', '', `${n(v.MYult, 1)} кН·м`),
+        eq('K_{sw} = F/F_{ult} + min(|M_{X}|/M_{X,ult} + |M_{Y}|/M_{Y,ult}; k·F/F_{ult})', '', k3(v.Ksw), 'ф. (8.96)'),
+        isNum(sp.KbOut) ? P(`За границей зоны армирования (контур на ${F(`z_{w} + 0,5·h_{0}`)} от граней сваи, п. 8.1.48) — бетон: ${kLine('K', sp.KbOut)}.`) : ''));
+    }
+    // 9. Направление допуска
+    if (r.shiftBoth) {
+      const b = r.shiftBoth;
+      list.push(step('Направление допуска на смещение сваи',
+        P(`Свая может отклониться от проекта и внутрь ростверка, и к краям — рассчитаны оба случая, принят худший: смещение внутрь — ${kLine('K', b.spIn)}, к краям — ${kLine('K', b.spOut)}.`)));
+    }
+    out.push(steps(list));
+    // Сводка всех вариантов
+    out.push(more('Все варианты контура — таблица', tbl(['Контур', 'Действует', 'u, см', 'e_{0X} / e_{0Y}, см', 'F_{b,ult}, кН', 'M_{X} / M_{Y}, кН·м', 'K'],
+      sp.variants.map((q) => [esc(q.name), q.active ? 'да' : q.off === 'far' ? 'нет — свая не у края' : q.off === 'edge' ? 'нет — за краем' : 'нет',
+        n(q.u, 1), `${n(q.e0X, 1)} / ${n(q.e0Y, 1)}`, n(q.Fb, 1), `${n(q.MX, 1)} / ${n(q.MY, 1)}`, q.active ? `<b>${k3(q.Kb)}</b>` : '—']), sp.governingIndex)));
+    return out.join('');
+  }
+
+  // =====================================================================
+  // Продавливание колонной по Пособию (пп. 2.2–2.7)
+  // =====================================================================
+  function colPos(r, P0) {
+    const C = P0 || r.column, p = r.input, isStep = !!P0;
+    const sup = isStep ? 'ступени' : 'колонны', supD = isStep ? 'ступени' : 'колонне';
+    const mat = materials(r);
+    const out = [];
+    const list = [];
+    const h0 = C.h0, h0c = h0 / 10;
+    if (C.two) {
+      const t = C.two;
+      out.push(verdict(t.K, `Продавливание ${isStep ? 'плиты ступенью' : 'колонной'} (куст из двух свай)`));
+      list.push(step('Что проверяем',
+        P(`В кусте из двух свай пирамида продавливания от ${sup} к сваям узкая: по Пособию пп. 2.6, 2.7 несущую способность определяют по ф. (8) — учитывается работа наклонных граней к сваям (через ${F('h_{0}/c_{1}')}) и полос бетона по обе стороны ${sup}.`)));
+      list.push(step('Размеры',
+        P(`Сваи расположены вдоль оси ${t.alongX ? 'X' : 'Y'}. Размер ${sup} поперёк линии свай ${F(`b_{col} = ${n(t.bcolP, 1)} см`)}, вдоль — ${F(`h_{col} = ${n(t.hcolP, 1)} см`)}; ширина ростверка поперёк линии свай ${F(`b = ${n(t.bP, 1)} см`)}.`),
+        eq('h_{0}', '', `${n(h0)} мм = ${n(h0c)} см`),
+        P(`От грани ${sup} до внутренней грани свай ${F(`c_{1} = ${n(t.c1raw, 1)} см`)}; принимается ${F('0,4·h_{0} ≤ c_{1} ≤ h_{0}')} → ${F(`c_{1} = ${n(t.c1, 1)} см`)}. От грани ${sup} до края ростверка поперёк линии свай ${F(`c_{2} = ${n(t.c2, 1)} см`)}.`),
+        mat.Rbt,
+        !isStep ? P(`Коэффициент ${F(`α = ${n(r.alpha, 3)}`)}${r.stakan ? ' — стакан, ф. (2), (3)' : ''}.`) : ''));
+      list.push(step('Несущая способность и проверка',
+        eq('F_{ult} = 2·R_{bt}·[(h_{0}/c_{1})·(b_{col} + c_{2})·h_{0} + (h_{col} + c_{1})·(b − b_{col})]/α',
+          `2·${n(r.Rbt / 10, 4)}·[(${n(h0c)}/${n(t.c1, 1)})·(${n(t.bcolP, 1)} + ${n(t.c2, 1)})·${n(h0c)} + (${n(t.hcolP, 1)} + ${n(t.c1, 1)})·(${n(t.bP, 1)} − ${n(t.bcolP, 1)})]/${n(isStep ? 1 : r.alpha, 3)}`,
+          `${n(t.Fult, 1)} кН`, 'Пособие ф. (8)'),
+        eq('F_{per} = 2·F_{max}', '', `${n(t.Fper, 1)} кН`, 'Пособие п. 2.7'),
+        eq('K = F_{per}/F_{ult}', `${n(t.Fper, 1)}/${n(t.Fult, 1)}`, k3(t.K))));
+      out.push(steps(list));
+      return out.join('');
+    }
+    const v = C.governingVariant || C.variants.find((q) => q.name === C.governing);
+    const cs = C.cSide, mu = C.multi;
+    out.push(verdict(C.K, isStep ? 'Продавливание плиты ступенью (Пособие)' : 'Продавливание колонной по Пособию', `Определяющий вариант пирамиды — «${esc(C.governing)}».`));
+    list.push(step('Что проверяем',
+      P(`${isStep ? 'Ступень' : 'Колонна'} продавливает ростверк вниз по боковым граням пирамиды. Её верхнее основание — сечение ${sup}, грани идут от граней ${sup} к внутренним граням свай (Пособие п. 2.2). Чем ближе сваи к ${supD} (меньше ${F('c')}), тем круче грани и тем больше несущая способность — множитель ${F('h_{0}/c')} в ф. (1).`),
+      P(`Продавливающая сила — реакции свай, расположенных за пределами нижнего основания пирамиды: ${F('F_{per} = 2·∑F_{i}')} со стороны наиболее нагруженной грани (п. 2.3).`)));
+    list.push(step('Исходные величины',
+      eq(isStep ? 'h_{0} = h − a' : (r.step ? 'h_{0} = H − a' : 'h_{0} = h − a'), isStep ? `${n(p.h)} − ${n(p.a)}` : `${n(r.step ? r.Htot : p.h)} − ${n(p.a)}`, `${n(h0)} мм = ${n(h0c)} см`, 'рабочая высота'),
+      mat.Rbt,
+      !isStep ? (r.stakan
+        ? eq('α = 1 − 0,4·R_{bt}·A_{f}/N ≥ 0,85', `1 − 0,4·${n(r.Rbt, 3)}·${n(r.Af / 1e6, 4)}·10^{3}/${n(p.N)}`, n(r.alpha, 3), 'Пособие ф. (2), (3) — часть силы передаётся стенкам стакана')
+        : P(`${F(`α = ${n(r.alpha, 3)}`)} — ${n(r.alpha, 3) === '1' ? 'монолитная, стальная колонна или колонна на болтах: сила передаётся полностью' : 'задано'} (Пособие ф. (1)).`))
+        : P(`${F('α = 1')} — ступень монолитна с плитой.`),
+      P(`Расстояния от граней ${sup} до внутренних граней ближайших свай (мм): ${F(`c_{+X} = ${n(cs.pX, 0)}`)}, ${F(`c_{−X} = ${n(cs.mX, 0)}`)}, ${F(`c_{+Y} = ${n(cs.pY, 0)}`)}, ${F(`c_{−Y} = ${n(cs.mY, 0)}`)}. Если за гранью свай нет, принимается ${F('c = h_{0}')} (45°).`),
+      (() => {
+        const lo = 0.4 * h0, cl = [cs.pX, cs.mX, cs.pY, cs.mY];
+        const less = cl.some((c) => c < lo - 0.5), more = cl.some((c) => c > h0 + 0.5);
+        return less || more ? note(`${less ? `Где c < 0,4·h₀ = ${n(lo, 0)} мм, принимается 0,4·h₀ — грань пирамиды не может быть круче (п. 2.2).` : ''}${less && more ? ' ' : ''}${more ? `Где c > h₀ = ${n(h0, 0)} мм, принимается h₀ — грань не положе 45°.` : ''}`) : '';
+      })()));
+    const multiAny = mu.pX || mu.mX || mu.pY || mu.mY;
+    list.push(step('Варианты пирамиды',
+      P(`Рассматриваются пирамиды до ближайшего ряда свай и${multiAny ? ' (если за гранью несколько рядов)' : ''} с гранями под 45° (${F('c = h_{0}')}) — в разных сочетаниях по X и Y; принимается наибольший K. Расчётное ${F('c')} ограничено: ${F('0,4·h_{0} ≤ c ≤ h_{0}')} = ${n(0.4 * h0c, 1)}…${n(h0c, 1)} см (п. 2.2).`),
+      tbl(['Вариант', 'c_{+X} / c_{−X} / c_{+Y} / c_{−Y}, см', 'Свай вне основания', 'F_{ult}, кН', 'F_{per}, кН', 'K'],
+        C.variants.map((q) => [esc(q.name), [q.cr.pX, q.cr.mX, q.cr.pY, q.cr.mY].map((c) => n(c, 1)).join(' / '), n(q.n1), n(q.Fult, 1), n(q.Fper, 1), `<b>${k3(q.K)}</b>`]),
+        C.variants.indexOf(v))));
+    const bxc = C.bx / 10, byc = C.by / 10, cr = v.cr;
+    list.push(step(`Несущая способность — вариант «${esc(v.name)}»`,
+      P(`Средние ширины граней пирамиды (полусумма верхнего и нижнего оснований трапеции):`),
+      eq('u_{±X} = b_{y} + (c_{+Y} + c_{−Y})/2', `${n(byc, 1)} + (${n(cr.pY, 1)} + ${n(cr.mY, 1)})/2`, `${n(v.uX, 1)} см`),
+      eq('u_{±Y} = b_{x} + (c_{+X} + c_{−X})/2', `${n(bxc, 1)} + (${n(cr.pX, 1)} + ${n(cr.mX, 1)})/2`, `${n(v.uY, 1)} см`),
+      eq('∑(h_{0}/c_{i})·u_{i}', `(${n(h0c)}/${n(cr.pX, 1)} + ${n(h0c)}/${n(cr.mX, 1)})·${n(v.uX, 1)} + (${n(h0c)}/${n(cr.pY, 1)} + ${n(h0c)}/${n(cr.mY, 1)})·${n(v.uY, 1)}`, `${n(v.sum, 1)} см`),
+      eq('F_{ult} = (R_{bt}·h_{0}/α)·∑(h_{0}/c_{i})·u_{i}', `(${n(r.Rbt / 10, 4)}·${n(h0c)}/${n(C.alpha, 3)})·${n(v.sum, 1)}`, `${n(v.Fult, 1)} кН`, 'Пособие ф. (1)')));
+    const SF = v.SF;
+    list.push(step('Продавливающая сила и проверка',
+      P(`Свай за пределами нижнего основания пирамиды: ${n(v.n1)}. Суммы их реакций по сторонам (свая на оси ${sup} делится пополам): ${F(`∑F_{+X} = ${n(SF.pX, 1)}`)}, ${F(`∑F_{−X} = ${n(SF.mX, 1)}`)}, ${F(`∑F_{+Y} = ${n(SF.pY, 1)}`)}, ${F(`∑F_{−Y} = ${n(SF.mY, 1)} кН`)}.`),
+      eq('F_{per} = 2·max(∑F)', `2·${n(Math.max(SF.pX, SF.mX, SF.pY, SF.mY), 1)}`, `${n(v.Fper, 1)} кН`, 'Пособие п. 2.3'),
+      eq('K = F_{per}/F_{ult}', `${n(v.Fper, 1)}/${n(v.Fult, 1)}`, k3(v.K)),
+      v.n1 === 0 ? note(`Все сваи в пределах основания пирамиды — продавливающей силы нет, нагрузка передаётся на сваи непосредственно.`) : ''));
+    out.push(steps(list));
+    return out.join('');
+  }
+
+  // =====================================================================
+  // Продавливание колонной (ступенью) по СП 63
+  // =====================================================================
+  function colSp63(r, cc, isStep) {
+    const p = r.input;
+    const mat = materials(r);
+    const sup = isStep ? 'ступени' : 'колонны';
+    const h0c = cc.h0 / 10, bx = cc.bx / 10, by = cc.by / 10;
+    const out = [verdict(cc.K, `Продавливание ${isStep ? 'плиты ступенью' : 'колонной'} по СП 63`, cc.F === 0 ? 'Продавливающей силы нет — см. пояснение ниже.' : '')];
+    const list = [];
+    list.push(step('Что проверяем',
+      P(`${isStep ? 'Ступень' : 'Колонна'} продавливает ростверк вниз. По СП 63 п. 8.1.46 расчётный контур — замкнутый прямоугольник на расстоянии ${F('0,5·h_{0}')} от граней ${sup}. Продавливающая сила — по п. 8.1.46 «за вычетом сил, действующих в пределах основания пирамиды продавливания в противоположном направлении», т. е. реакции свай, стоящих вне основания пирамиды (грани под 45°: ${F(`b + 2·h_{0}`)}).`)));
+    list.push(step('Контур и сила, которую воспринимает бетон',
+      eq('h_{0}', '', `${n(cc.h0)} мм = ${n(h0c)} см`),
+      mat.Rbt,
+      eq('L_{x} × L_{y} = (b_{x} + h_{0}) × (b_{y} + h_{0})', `(${n(bx, 1)} + ${n(h0c)}) × (${n(by, 1)} + ${n(h0c)})`, `${n(cc.Lx, 1)} × ${n(cc.Ly, 1)} см`),
+      eq('u = 2·(L_{x} + L_{y})', '', `${n(cc.u, 1)} см`, 'п. 8.1.47'),
+      eq('F_{b,ult} = R_{bt}·u·h_{0}', `${n(r.Rbt / 10, 4)}·${n(cc.u, 1)}·${n(h0c)}`, `${n(cc.Fb, 1)} кН`, 'ф. (8.88), (8.89)'),
+      cc.inSlab ? '' : note('Контур выходит за край ростверка — расчёт по замкнутому контуру приближённый.')));
+    const baseX = cc.bx + 2 * cc.h0, baseY = cc.by + 2 * cc.h0;
+    list.push(step('Продавливающая сила',
+      P(`Основание пирамиды ${n(baseX, 0)} × ${n(baseY, 0)} мм (по центру ${sup}). Свай вне основания: ${n(cc.nOut)}; сумма их реакций ${F(`F = ${n(cc.F, 1)} кН`)}.`),
+      cc.F === 0 ? note(`<b>Почему F = 0.</b> Все сваи стоят в пределах основания пирамиды продавливания — нагрузка ${isStep ? 'ступени' : 'колонны'} передаётся на сваи непосредственно сжатыми «подкосами» бетона, а не через срез по контуру. Модель плиты СП 63 в этом случае продавливания не даёт; для толстых ростверков с близко расположенными сваями определяющей является проверка по Пособию (блок выше), которая учитывает такие пирамиды через ограничение ${F('c ≥ 0,4·h_{0}')}.`) : ''));
+    list.push(step('Моменты и проверка',
+      P(`Моменты в колонне учитываются наполовину (п. 8.1.46): ${F(`M_{X} = ${n(p.kM, 2)}·|M_{x}| = ${n(cc.MX, 1)}`)}, ${F(`M_{Y} = ${n(cc.MY, 1)} кН·м`)}. Предельные моменты по ф. (8.94): ${F(`M_{bX,ult} = ${n(cc.MbX, 1)}`)}, ${F(`M_{bY,ult} = ${n(cc.MbY, 1)} кН·м`)}.`),
+      eq('K = F/F_{b,ult} + min(M_{X}/M_{bX,ult} + M_{Y}/M_{bY,ult}; k·F/F_{b,ult})', `${n(cc.FFb, 3)} + ${n(cc.mTerm, 3)}`, k3(cc.K), 'ф. (8.95)')));
+    out.push(steps(list));
+    return out.join('');
+  }
+
+  // =====================================================================
+  // Продавливание угловой сваей по Пособию (п. 2.9)
+  // =====================================================================
+  function corner(r) {
+    const p = r.input, k = r.corner;
+    if (!k.applicable) return verdict(undefined, `Проверка по Пособию п. 2.9: ${esc(k.status)}`,
+      k.status.startsWith('Только') ? 'Формула (14) Пособия — для угловой сваи. Крайняя свая проверяется по СП 63 (блок «Продавливание сваей по СП 63»).'
+        : 'Внутренние грани сваи заходят под колонну — пирамида продавливания не образуется (Пособие, прим. 2 к табл. 1).');
+    const mat = materials(r);
+    const h01 = r.h01;
+    const sup = r.step ? 'ступени' : 'колонны';
+    const out = [verdict(k.K, 'Продавливание угловой сваей по Пособию', `Смещение сваи — ${esc(k.shiftText || '')}.`)];
+    const list = [];
+    list.push(step('Что проверяем',
+      P(`Угловая свая продавливает угол ростверка вверх. По Пособию п. 2.9 пирамида продавливания идёт от внутренних граней сваи к граням ${sup}; её боковые грани у свободных краёв отсутствуют, поэтому несущая способность определяется двумя гранями — по X и по Y — ф. (14).`)));
+    list.push(step('Размеры',
+      eq('h_{01} = h − l_{зад}', `${n(p.h)} − ${n(p.lEmb)}`, `${n(h01)} мм`, 'рабочая высота от верха сваи, п. 2.9'),
+      mat.Rbt,
+      P(`От внутренних граней сваи до наружных граней ростверка (с учётом смещения сваи): ${F(`b_{01} = ${n(k.b01, 0)} мм`)} (по X), ${F(`b_{02} = ${n(k.b02, 0)} мм`)} (по Y).`),
+      P(`От внутренних граней сваи до граней ${sup}: ${F(`c_{01} = ${n(r.c01raw + (r.delta || 0), 0)}`)}, ${F(`c_{02} = ${n(r.c02raw + (r.delta || 0), 0)} мм`)}; принимается ${F('0,4·h_{01} ≤ c_{0i} ≤ h_{01}')} = ${n(0.4 * h01, 0)}…${n(h01, 0)} мм → ${F(`c_{01} = ${n(k.c01, 0)}`)}, ${F(`c_{02} = ${n(k.c02, 0)} мм`)}.`),
+      (() => {
+        const raw = [r.c01raw + (r.delta || 0), r.c02raw + (r.delta || 0)];
+        if (raw.some((c) => c < 0)) return note(`Отрицательное c — внутренняя грань сваи заходит под ${r.step ? 'ступень' : 'колонну'}; пирамида становится предельно крутой, и принимается c = 0,4·h₀₁.`);
+        if (raw.some((c) => c < 0.4 * h01 - 0.5)) return note('Где c < 0,4·h₀₁, принимается 0,4·h₀₁ — грань пирамиды не может быть круче.');
+        return '';
+      })()));
+    list.push(step('Коэффициенты β по табл. 1',
+      P(`β зависит от крутизны грани пирамиды ${F('h_{01}/c_{0i}')} (интерполяция по табл. 1 Пособия):`),
+      eq('h_{01}/c_{01}', `${n(h01)}/${n(k.c01, 0)}`, `${n(k.ratio1, 3)} → β_{1} = ${n(k.beta1, 3)}`),
+      eq('h_{01}/c_{02}', `${n(h01)}/${n(k.c02, 0)}`, `${n(k.ratio2, 3)} → β_{2} = ${n(k.beta2, 3)}`)));
+    list.push(step('Несущая способность и проверка',
+      eq('F_{ult} = R_{bt}·h_{01}·[β_{1}·(b_{02} + c_{02}/2) + β_{2}·(b_{01} + c_{01}/2)]',
+        `${n(r.Rbt / 10, 4)}·${n(h01 / 10)}·[${n(k.beta1, 3)}·(${n(k.b02 / 10, 1)} + ${n(k.c02 / 10, 1)}/2) + ${n(k.beta2, 3)}·(${n(k.b01 / 10, 1)} + ${n(k.c01 / 10, 1)}/2)]`,
+        `${n(k.Fult, 1)} кН`, 'Пособие ф. (14), размеры в см'),
+      eq('K = F_{1}/F_{ult}', `${n(k.Fper)}/${n(k.Fult, 1)}`, k3(k.K)),
+      r.shiftBoth ? P(`Рассчитаны оба направления допуска: внутрь — ${kLine('K', r.shiftBoth.cornerIn)}, к краям — ${kLine('K', r.shiftBoth.cornerOut)}; принят худший.`) : ''));
+    out.push(steps(list));
+    return out.join('');
+  }
+
+  // =====================================================================
+  // Поперечная сила и изгиб по граням колонны (СП 63)
+  // =====================================================================
+  function sections(r) {
+    const p = r.input, se = r.sections;
+    const mat = materials(r);
+    const gov = (key) => se.reduce((a, b) => ((b[key] || 0) > (a[key] || 0) ? b : a));
+    const gS = gov('Kstrip'), gQ = gov('KQb'), gM = gov('Kbend'), gA = gov('KMs');
+    const Kmax = Math.max(gS.Kstrip, gQ.KQb, gM.Kbend, gA.KMs);
+    const out = [verdict(Kmax, 'Поперечная сила и изгиб по граням', `Проверено ${se.length} сечений; ниже — определяющее сечение для каждой проверки, все сечения — в таблице.`)];
+    const list = [];
+    list.push(step('Что проверяем',
+      P(`Ростверк работает как консоль, нагруженная реакциями свай. В сечениях по граням ${r.step ? 'колонны и ступени' : 'колонны'} проверяются: прочность бетонной полосы между наклонными трещинами (п. 8.1.32), наклонное сечение на поперечную силу (п. 8.1.33), нормальное сечение на изгиб (п. 8.1.8 и далее) и наклонное сечение на момент — анкеровка нижней арматуры (п. 8.1.35).`),
+      mat.Rb, mat.Rbt, note(mat.gText)));
+    list.push(step(`Бетонная полоса — сечение «${esc(gS.name)}»`,
+      P(`Поперечная сила — сумма реакций свай за гранью: ${F(`Q = ${n(gS.Q, 1)} кН`)}; ширина ${F(`b = ${n(gS.bw, 1)} см`)}, ${F(`h_{0} = ${n(gS.h0)} см`)}.`),
+      eq('Q_{ult} = φ_{b1}·R_{b}·b·h_{0}, φ_{b1} = 0,3', `0,3·${n(r.Rb / 10, 3)}·${n(gS.bw, 1)}·${n(gS.h0)}`, `${n(gS.Qstrip, 1)} кН`, 'ф. (8.55)'),
+      eq('K = Q/Q_{ult}', `${n(gS.Q, 1)}/${n(gS.Qstrip, 1)}`, k3(gS.Kstrip))));
+    const sr = gQ.shearGov;
+    list.push(step(`Наклонное сечение (поперечная сила) — сечение «${esc(gQ.name)}»`,
+      P(`Наклонное сечение идёт от грани до внутренней грани ряда свай; проверяется у каждого ряда за гранью (Пособие п. 2.11) — определяет ряд с ${F(`c = ${n(sr.c / 10, 1)} см`)}, за ним реакции ${F(`Q = ${n(sr.Q, 1)} кН`)}.`),
+      eq('Q_{b} = φ_{b2}·R_{bt}·b·h_{0}^{2}/C, φ_{b2} = 1,5', `1,5·${n(r.Rbt / 10, 4)}·${n(gQ.bw, 1)}·${n(gQ.h0)}^{2}/${n(Math.max(sr.c / 10, 0.1), 1)}`, '', 'ф. (8.57)'),
+      P(`с ограничениями ${F('0,5·R_{bt}·b·h_{0} ≤ Q_{b} ≤ 2,5·R_{bt}·b·h_{0}')} = ${n(0.5 * r.Rbt / 10 * gQ.bw * gQ.h0, 1)}…${n(2.5 * r.Rbt / 10 * gQ.bw * gQ.h0, 1)} кН → ${F(`Q_{b} = ${n(sr.Qb, 1)} кН`)}.`),
+      eq('K = Q/Q_{b}', `${n(sr.Q, 1)}/${n(sr.Qb, 1)}`, k3(gQ.KQb))));
+    list.push(step(`Изгиб — сечение «${esc(gM.name)}»`,
+      P(`Момент от реакций свай за гранью с учётом смещения свай ${F(`e_{0} = ${n(p.e0)} мм`)}: ${F('M = ∑F_{i}·(x_{i} + e_{0})')} = ${F(`${n(gM.M, 1)} кН·м`)}. Арматура, пересекающая сечение: ${F(`A_{s} = ${n(gM.As, 2)} см^{2}`)}.`),
+      eq('x = R_{s}·A_{s}/(R_{b}·b)', `${n(r.Rs / 10, 1)}·${n(gM.As, 2)}/(${n(r.Rb / 10, 3)}·${n(gM.bwC, 1)})`, `${n(gM.x, 2)} см`),
+      P(`${F(`ξ = x/h_{0} = ${n(gM.xi, 3)}`)} ${gM.xi <= r.xiR ? '≤' : '>'} ${F(`ξ_{R} = ${n(r.xiR, 3)}`)}${gM.xi <= r.xiR ? '' : ' — сжатая зона переармирована, x принимается равной ξ_{R}·h_{0}'}.`),
+      gM.xi <= r.xiR
+        ? eq('M_{ult} = R_{s}·A_{s}·(h_{0} − 0,5·x)', `${n(r.Rs / 10, 1)}·${n(gM.As, 2)}·(${n(gM.h0)} − 0,5·${n(gM.x, 2)})·10^{−2}`, `${n(gM.Mult, 1)} кН·м`)
+        : eq('M_{ult} = R_{b}·b·ξ_{R}·h_{0}·(h_{0} − 0,5·ξ_{R}·h_{0})', '', `${n(gM.Mult, 1)} кН·м`),
+      eq('K = M/M_{ult}', `${n(gM.M, 1)}/${n(gM.Mult, 1)}`, k3(gM.Kbend))));
+    list.push(step(`Анкеровка нижней арматуры (наклонное сечение по моменту) — сечение «${esc(gA.name)}»`,
+      P(`Наклонная трещина у грани ряда свай пересекает нижнюю арматуру близко к её концу; арматура может развить усилие только пропорционально длине заделки за трещиной (п. 8.1.35, 10.3.26).`),
+      eq('l_{an} = (1 − δ)·R_{s}·d_{s}/(4·η_{1}·η_{2}·R_{bt})', (() => { const ds = /X/.test(gA.name) ? p.dsx : p.dsy; return `(1 − ${n(r.lanRed || 0, 2)})·${n(r.Rs)}·${n(ds)}/(4·${n(p.eta1, 2)}·${ds > 32 ? '0,9' : '1'}·${n(r.Rbt, 3)})`; })(), `${n(gA.lan, 0)} мм`, `ф. (10.1)–(10.3)${r.lanRed ? `, снижение δ = ${n(r.lanRed * 100, 0)} % по п. 10.3.25` : ''}`),
+      P(`Фактическая заделка от внутренней грани ближайшего ряда свай до торца стержня ${F(`l_{s} = ${n(gA.ls, 0)} мм`)}.`),
+      eq('N_{s} = R_{s}·A_{s}·l_{s}/l_{an}', `${n(r.Rs / 10, 1)}·${n(gA.As, 2)}·${n(Math.min(1, Math.max(0, gA.ls / gA.lan)), 3)}`, `${n(gA.Ns, 1)} кН`, 'п. 10.3.26'),
+      eq('M_{s} = N_{s}·z_{s}, z_{s} = 0,9·h_{0}', `${n(gA.Ns, 1)}·0,9·${n(gA.h0)}·10^{−2}`, `${n(gA.Ms, 1)} кН·м`, 'ф. (8.64)'),
+      eq('K = M/M_{s}', `${n(gA.M, 1)}/${n(gA.Ms, 1)}`, k3(gA.KMs)),
+      note('Сравнение с Пособием п. 2.15 — в блоке «Наклонное сечение по моменту: СП 63 и Пособие».')));
+    out.push(steps(list));
+    out.push(more('Все сечения — таблица', tbl(['Сечение', 'Q, кН', 'K полоса', 'K накл. сеч.', 'M, кН·м', 'K изгиб', 'K анкеровка'],
+      se.map((q) => [esc(q.name), n(q.Q, 1), k3(q.Kstrip), k3(q.KQb), n(q.M, 1), k3(q.Kbend), k3(q.KMs)]))));
+    return out.join('');
+  }
+
+  // =====================================================================
+  // Местное сжатие (п. 8.1.44)
+  // =====================================================================
+  function localOne(v, title, intro) {
+    return step(title, intro ? P(intro) : '',
+      eq('A_{b,loc} = b_{x}·b_{y}', '', `${n(v.Abloc / 100, 1)} см^{2}`, 'площадь смятия'),
+      P(`Расчётная площадь ${F('A_{b,max}')} — площадка, увеличенная в каждую сторону не более чем на свой размер и не выходящая за край: на ${F(`c_{x} = ${n(v.cx, 0)}`)}, ${F(`c_{y} = ${n(v.cy, 0)} мм`)}.`),
+      eq('A_{b,max} = (b_{x} + 2c_{x})·(b_{y} + 2c_{y})', `(${n(v.bx, 0)} + 2·${n(v.cx, 0)})·(${n(v.by, 0)} + 2·${n(v.cy, 0)})·10^{−2}`, `${n(v.Abmax / 100, 1)} см^{2}`, 'п. 8.1.44'),
+      eq('φ_{b} = 0,8·√(A_{b,max}/A_{b,loc}), 1,0 ≤ φ_{b} ≤ 2,5', `0,8·√(${n(v.Abmax / 100, 1)}/${n(v.Abloc / 100, 1)})`, n(v.phi, 3), 'ф. (8.82)'),
+      eq('R_{b,loc} = φ_{b}·R_{b}', '', `${n(v.Rbloc, 2)} МПа`, 'ф. (8.81)'),
+      eq('N_{ult} = ψ·R_{b,loc}·A_{b,loc}', `${n(v.psi, 2)}·${n(v.Rbloc / 10, 3)}·${n(v.Abloc / 100, 1)}`, `${n(v.Nult, 0)} кН`, `ф. (8.80); ψ = ${n(v.psi, 2)} — ${v.psi < 1 ? 'неравномерное' : 'равномерное'} распределение`),
+      eq('K = N/N_{ult}', `${n(v.N, 1)}/${n(v.Nult, 0)}`, k3(v.K)));
+  }
+  function local(r) {
+    const L = r.local, list = [];
+    const Ks = [L.column && L.column.K, L.pile && L.pile.K].filter(isNum);
+    const out = [verdict(Ks.length ? Math.max(...Ks) : undefined, 'Местное сжатие (смятие) бетона')];
+    list.push(step('Что проверяем',
+      P('Бетон под небольшой площадкой (торец колонны, опорная плита, голова сваи) может раздавиться. Окружающий бетон обжимает площадку и повышает её сопротивление — коэффициент φ_{b} по п. 8.1.44 (без косвенного армирования).'.replace('φ_{b}', F('φ_{b}')))));
+    if (L.column) {
+      const c = L.column;
+      const what = { steel: 'Под опорной плитой базы стальной колонны (Пособие п. 2.21)', cup: 'У дна стакана под торцом колонны (Пособие п. 2.17; Пособие по фундаментам пп. 2.47, 2.48)', bolt: 'Под торцом колонны на анкерных болтах (Пособие п. 2.17)' }[c.kind];
+      list.push(localOne(c, what, `${c.kind === 'cup' ? `Сила ${F(`N = α·N = ${n(c.alpha, 3)}·${n(c.Nfull)} = ${n(c.N, 1)} кН`)} — часть силы передаётся стенкам стакана.` : `Сила ${F(`N = ${n(c.N, 1)} кН`)} — полная сила в колонне.`} Эксцентриситет ${F(`e_{0} = ${n(c.e0x, 0)} / ${n(c.e0y, 0)} мм`)} ${c.uniform ? '≤' : '>'} b/6 — нагрузка ${c.uniform ? 'равномерная' : 'неравномерная'}.`));
+    } else list.push(step('Под колонной', P('Под монолитной колонной проверка не требуется (Пособие пп. 2.17, 2.21 относят её к сборным и стальным колоннам).')));
+    if (L.pile) {
+      const g = L.pile.gov;
+      list.push(localOne(g, `Над головой сваи — наиболее нагруженная: ${esc(g.name)}`, `Площадь смятия — сечение сваи${L.pile.round ? ` (круглая — квадрат той же площади, сторона ${n(L.pile.bEq, 0)} мм)` : ''}; ${F(`N = ${n(g.N, 1)} кН`)}.`));
+    }
+    out.push(steps(list));
+    return out.join('');
+  }
+
+  // =====================================================================
+  // Расчётные размеры и характеристики материалов
+  // =====================================================================
+  function geo(r) {
+    const p = r.input, mat = materials(r);
+    const list = [];
+    list.push(step('Бетон', mat.Rbt, mat.Rb, note(mat.gText)));
+    list.push(step('Арматура',
+      P(`Рабочая арматура ${esc(p.rebarClass)}: ${F(`R_{s} = ${n(r.Rs)} МПа`)}; поперечная ${esc(p.swClass)}: ${F(`R_{sw} = ${n(r.Rsw)} МПа`)} (СП 63 табл. 6.14, 6.15).`),
+      eq('A_{s,x} = n_{x}·π·d_{s,x}^{2}/4', `${n(p.nx)}·π·${n(p.dsx / 10, 1)}^{2}/4`, `${n(r.Asx, 2)} см^{2}`),
+      eq('A_{s,y} = n_{y}·π·d_{s,y}^{2}/4', `${n(p.ny)}·π·${n(p.dsy / 10, 1)}^{2}/4`, `${n(r.Asy, 2)} см^{2}`),
+      eq('ξ_{R} = 0,8/(1 + R_{s}/(E_{s}·0,0035))', `0,8/(1 + ${n(r.Rs)}/(200000·0,0035))`, n(r.xiR, 3), 'граничная высота сжатой зоны')));
+    list.push(step('Рабочие высоты',
+      eq('h_{0} = h − a', `${n(p.h)} − ${n(p.a)}`, `${n(r.h0)} мм`, 'до центра нижней арматуры — для СП 63'),
+      eq('h_{01} = h − l_{зад}', `${n(p.h)} − ${n(p.lEmb)}`, `${n(r.h01)} мм`, 'от верха свай — Пособие п. 2.9'),
+      r.step ? eq('h_{0,кол} = H − a = h + h_{2} − a', `${n(p.h)} + ${n(r.step.H)} − ${n(p.a)}`, `${n(r.h0top)} мм`, 'под колонной — на всю высоту ступенчатого ростверка') : ''));
+    list.push(step('Проверяемая свая',
+      P(`Допускаемое отклонение сваи в плане ${F(`ΔX = ${n(r.dX)}`)}, ${F(`ΔY = ${n(r.dY)} мм`)} (СП 45 табл. 12.1${isNum(p.dX) || isNum(p.dY) ? '; задано вручную' : ''}); направление — ${esc(r.shiftText || '')}.`),
+      p.pileShape === 'Круглая' ? eq('b_{p} = 0,89·d', `0,89·${n(p.pileSize)}`, `${n(r.bp)} мм`, 'Пособие п. 1.4') : '',
+      P(`От наружных граней сваи до краёв (со смещением): ${F(`a_{x} = ${n(r.ax, 0)}`)}, ${F(`a_{y} = ${n(r.ay, 0)} мм`)}; от внутренних граней до граней ${r.step ? 'ступени' : 'колонны'}: ${F(`c_{01} = ${n(r.c01raw, 0)}`)}, ${F(`c_{02} = ${n(r.c02raw, 0)} мм`)}.`)));
+    list.push(step('Нагрузки на сваи',
+      P(`Центр колонны ${F(`x_{col} = ${n(r.xcol, 0)}`)}, ${F(`y_{col} = ${n(r.ycol, 0)} мм`)}; центр тяжести свайного поля ${F(`x̄ = ${n(r.xbar, 0)}`)}, ${F(`ȳ = ${n(r.ybar, 0)} мм`)}.`),
+      eq('M_{x,tot} = M_{x} + N·(x_{col} − x̄)', `${sg(p.Mx)} + ${n(p.N)}·${sg((r.xcol - r.xbar) / 1000, 3)}`, `${n(r.MxTot, 1)} кН·м`),
+      eq('M_{y,tot} = M_{y} + N·(y_{col} − ȳ)', `${sg(p.My)} + ${n(p.N)}·${sg((r.ycol - r.ybar) / 1000, 3)}`, `${n(r.MyTot, 1)} кН·м`),
+      eq('F_{i} = N/n + M_{x,tot}·(x_{i} − x̄)/∑(x_{i} − x̄)^{2} + M_{y,tot}·(y_{i} − ȳ)/∑(y_{i} − ȳ)^{2}', '', '', 'реакции — в таблице свай в форме слева'),
+      tbl(['Свая', 'x, мм', 'y, мм', 'F_{i}, кН'], r.pileRows.map((q, i) => [String(i + 1), n(q.x, 0), n(q.y, 0), `${n(q.F, 1)}${q.Fmanual !== null ? ' (задано)' : ''}`]))));
+    return steps(list);
+  }
+
+  return { sp63, colPos, colSp63, corner, sections, local, geo, n, k3 };
+});
+
+</script>
+<script>
 (function () {
   'use strict';
   const C = window.RostverkCalc;
   // Страница и подключаемые файлы ядра должны быть одной версии: иначе часть расчёта не отобразится
-  const APP_VERSION = '2026-10-20.2';
+  const APP_VERSION = '2026-10-20.3';
   function banner(msg) {
     let el = document.getElementById('appBanner');
     if (!el) {
@@ -23661,6 +24195,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     }
     // Раскрытие блока — средствами страницы, а не встроенным поведением <details>:
     // во встроенном просмотре claude.ai (WebKit) нативное раскрытие может не срабатывать.
+    const sub = e.target.closest('details.xs-more > summary');
+    if (sub) { e.preventDefault(); sub.parentElement.open = !sub.parentElement.open; return; }
     const sum = e.target.closest('details.blk > summary');
     if (!sum) return;
     e.preventDefault();
@@ -24002,14 +24538,19 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     ]);
     const S = Object.fromEntries(r.summary.map((s) => [s.key, s]));
     const nFail = r.summary.filter((q) => q.pass === false).length;
+    // Пошаговые пояснения (explain.js); прежние таблицы — свёрнуто под ними
+    const X = window.RostverkExplain;
+    const more = (t, h) => `<details class="xs-more"><summary>${esc(t)}</summary><div class="xs-more-b">${h}</div></details>`;
+    const ex = (fn, fallback) => { if (!X) return fallback; try { return fn(); } catch (e) { return `<p class="small">Пояснение не построено: ${esc(e.message)}</p>` + fallback; } };
+    const TBL = 'Все величины — таблица';
     $('details').innerHTML = [
       `<div class="dh"><div class="dh-row"><h2>Подробный расчёт</h2><span class="toolbar"><button class="btn small" type="button" data-all="1">Развернуть все</button><button class="btn small" type="button" data-all="0">Свернуть все</button></span></div><p class="small">Каждый блок раскрывается нажатием на его заголовок. ${nFail ? `Не проходит проверок: ${nFail} — эти блоки раскрыты сразу, значения K > 1 выделены красным.` : 'Все проверки выполнены.'} Строка в сводке выше ведёт к своему блоку.</p></div>`,
-      block('geo', 'Расчётные размеры и характеристики материалов', undefined, geo),
-      block('col', 'Продавливание колонной (Пособие пп. 2.2–2.6, ф. (1), (8))', S.column.K, colHead + colTbl + twoTbl + colNote),
-      block('colsp63', 'Продавливание колонной по СП 63.13330.2018 пп. 8.1.46–8.1.49', S.colsp63.K, colSpTbl),
-      block('corner', 'Продавливание угловой сваей (Пособие п. 2.9, ф. 14)', S.corner.K === null ? undefined : S.corner.K, cornerTbl),
-      r.step ? block('step', 'Продавливание плиты ступенью (ступенчатый ростверк)', S.step.K, stepInner(r)) : '',
-      block('sp63', 'Продавливание сваей по СП 63.13330.2018 пп. 8.1.46–8.1.50', S.sp63.K, spInner),
+      block('geo', 'Расчётные размеры и характеристики материалов', undefined, ex(() => X.geo(r) + more(TBL, geo), geo)),
+      block('col', 'Продавливание колонной (Пособие пп. 2.2–2.6, ф. (1), (8))', S.column.K, ex(() => X.colPos(r) + more(TBL, colHead + colTbl + twoTbl + colNote), colHead + colTbl + twoTbl + colNote)),
+      block('colsp63', 'Продавливание колонной по СП 63.13330.2018 пп. 8.1.46–8.1.49', S.colsp63.K, ex(() => X.colSp63(r, r.colSp63) + more(TBL, colSpTbl), colSpTbl)),
+      block('corner', 'Продавливание угловой сваей (Пособие п. 2.9, ф. 14)', S.corner.K === null ? undefined : S.corner.K, ex(() => X.corner(r) + more(TBL, cornerTbl), cornerTbl)),
+      r.step ? block('step', 'Продавливание плиты ступенью (ступенчатый ростверк)', S.step.K, ex(() => X.colPos(r, r.stepPunch) + X.colSp63(r, r.stepSp63, true) + more(TBL, stepInner(r)), stepInner(r))) : '',
+      block('sp63', 'Продавливание сваей по СП 63.13330.2018 пп. 8.1.46–8.1.50', S.sp63.K, ex(() => X.sp63(r) + more('Все величины по всем вариантам контура — таблица', spInner), spInner)),
       r.allCorners.length ? block('allc', 'Все угловые сваи куста (по реакциям из таблицы)', S.allcorners.K, table(r.allCorners.map((c) => c.name), [
         ['Свая (номер в таблице)', '№', r.allCorners.map((c) => c.pile), ''],
         ['Нагрузка на сваю (реакция из таблицы)', 'F', r.allCorners.map((c) => c.F), 'кН'],
@@ -24017,10 +24558,10 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         ['СП 63 (определяющий контур)', 'K', r.allCorners.map((c) => c.Ksp), '', { k: true }],
         ['Контур СП 63', '', r.allCorners.map((c) => c.spGov), ''],
         ['Наибольший', 'K', r.allCorners.map((c) => c.K), '', { key: true, k: true }],
-      ]) + '<p class="small">Моменты в голове сваи приняты как для проверяемой сваи; допуск на смещение — по выбранному направлению.</p>') : '',
-      block('sec', 'Поперечная сила и изгиб по граням колонны (СП 63 пп. 8.1.8, 8.1.32–8.1.35)', Math.max(S.strip.K, S.shear.K, S.bend.K, S.anchor.K), secTbl),
+      ]) + '<p class="small">Каждая угловая свая куста проверяется так же, как проверяемая (блоки «Продавливание угловой сваей» и «Продавливание сваей по СП 63»), но с нагрузкой — реакцией этой сваи из таблицы свай. Моменты в голове сваи приняты как для проверяемой сваи; допуск на смещение — по выбранному направлению. Итог — наибольший K.</p>') : '',
+      block('sec', 'Поперечная сила и изгиб по граням колонны (СП 63 пп. 8.1.8, 8.1.32–8.1.35)', Math.max(S.strip.K, S.shear.K, S.bend.K, S.anchor.K), ex(() => X.sections(r) + more(TBL, secTbl), secTbl)),
       block('anchorcmp', 'Наклонное сечение по моменту: СП 63 и Пособие — сравнение', S.anchor.K, anchorCmpInner(r)),
-      block('local', 'Местное сжатие (смятие), СП 63.13330.2018 п. 8.1.44', Math.max(S.localcol.K || 0, S.localpile.K || 0), localInner(r)),
+      block('local', 'Местное сжатие (смятие), СП 63.13330.2018 п. 8.1.44', Math.max(S.localcol.K || 0, S.localpile.K || 0), ex(() => X.local(r) + more(TBL, localInner(r)), localInner(r))),
     ].join('');
   }
 
