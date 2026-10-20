@@ -76,6 +76,9 @@ header.top { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: flex-e
 .sw { display: inline-block; width: 12px; height: 12px; border-radius: 2px; vertical-align: -2px; margin-right: 5px; border: 1px solid var(--line); }
 
 .toolbar { display: flex; flex-wrap: wrap; gap: 8px; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.seg button { border: 0; background: var(--surface); color: var(--ink); padding: 6px 10px; font-size: 13px; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--surface); }
 .btn {
   border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 6px;
   padding: 7px 12px; cursor: pointer; font-size: 13px;
@@ -366,6 +369,7 @@ dialog.issues .toolbar { margin-top: 16px; justify-content: flex-end; }
 
   <nav class="projbar" id="projbar" aria-label="Ростверки"></nav>
   <div class="toolbar">
+    <span class="seg" id="unitsSeg" role="group" aria-label="Единицы сил" title="Единицы сил и моментов: 1 тс = 10 кН"><button type="button" data-units="кН">кН</button><button type="button" data-units="тс">тс</button></span>
     <button class="btn primary" id="wordBtn" type="button">Отчёт Word по ростверку</button>
     <button class="btn" id="manyBtn" type="button">Сводный отчёт…</button>
     <label class="btn" for="xlsxFile">Загрузить из Excel-шаблона…</label>
@@ -1663,7 +1667,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     return { errors, warnings, result: errors.length ? null : r };
   }
 
-  const VERSION = '2026-10-20.3'; // должна совпадать с версией страницы и отчёта (index.html, report.js)
+  const VERSION = '2026-10-20.4'; // должна совпадать с версией страницы и отчёта (index.html, report.js)
   return { VERSION, compute, validate, suggest, DEFAULTS, CONCRETE, REBAR, BETA_TABLE, betaOf, meshSteps };
 });
 
@@ -22201,7 +22205,10 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
   const xmlEsc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const W_RPR = `<w:rPr><w:rFonts w:ascii="${FONT}" w:hAnsi="${FONT}" w:cs="${FONT}"/><w:i/><w:iCs/><w:sz w:val="${SZ}"/><w:szCs w:val="${SZ}"/></w:rPr>`;
-  const mRun = (text) => (text === '' ? '' : `<m:r><m:rPr><m:nor/></m:rPr>${W_RPR}<m:t xml:space="preserve">${xmlEsc(text)}</m:t></m:r>`);
+  // Режим единиц текущего отчёта: в тс обозначения «кН» заменяются на «тс» в тексте и формулах
+  let UNIT_T = false;
+  const uText = (t) => (UNIT_T ? String(t).replace(/кН/g, 'тс') : t);
+  const mRun = (text) => (text === '' ? '' : `<m:r><m:rPr><m:nor/></m:rPr>${W_RPR}<m:t xml:space="preserve">${xmlEsc(uText(text))}</m:t></m:r>`);
   const CTRL = `<m:ctrlPr>${W_RPR}</m:ctrlPr>`;
 
   // Разбор строки с индексами: основание индекса — последний символ перед «_» / «^»
@@ -22300,7 +22307,14 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     const useSw = p.useTransverse === true || p.useTransverse === 'Да';
     const h0 = r.h0 / 10, h01 = r.h01 / 10;
     const h0c = r.h0top / 10; // под колонной (при ступенчатом ростверке — на всю высоту H)
-    const RbtCm = r.Rbt / 10, RbCm = r.Rb / 10, RsCm = r.Rs / 10, RswCm = r.Rsw / 10;
+    // Единицы сил: кН или тс (1 тс = 10 кН). В тс пересчитываются все величины на основе кН — силы, моменты,
+    // сопротивления в кН/см² и q_sw, — поэтому подстановки в формулах остаются верными; размеры не меняются
+    UNIT_T = o.units === 'тс';
+    const kf = UNIT_T ? 0.1 : 1;
+    const fF = (v, d) => f(isNum(v) ? v * kf : v, d);
+    const fpF = (v, d) => fp(isNum(v) ? v * kf : v, d);
+    const fR = (v) => f(v, UNIT_T ? 4 : undefined); // сопротивления в кН/см² или тс/см²
+    const RbtCm = r.Rbt / 10 * kf, RbCm = r.Rb / 10 * kf, RsCm = r.Rs / 10 * kf, RswCm = r.Rsw / 10 * kf;
     const mode = ctx ? ctx.mode : 'single';
     const children = ctx ? ctx.children : [];
     const eqs = ctx ? ctx.eqs : [];
@@ -22308,6 +22322,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
     // Текст с разметкой _{...} / ^{...} → прогоны с индексами
     function runs(text, base) {
+      text = uText(text);
       const out = [];
       const re = /([_^])\{([^}]*)\}/g;
       let last = 0, m;
@@ -22486,12 +22501,12 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
     table('Реакции свай куста (от N и M у верха ростверка без веса ростверка и грунта; «вручную» — заданы)',
       ['Свая', 'x, мм', 'y, мм', 'F_{i}, кН', 'Источник'],
-      r.pileRows.map((q, i) => [String(i + 1), f(q.x, 0), f(q.y, 0), f(q.F, 1), q.Fmanual !== null ? 'вручную' : 'от N, M']), 1, [12, 22, 22, 22, 22]);
+      r.pileRows.map((q, i) => [String(i + 1), f(q.x, 0), f(q.y, 0), fF(q.F, 1), q.Fmanual !== null ? 'вручную' : 'от N, M']), 1, [12, 22, 22, 22, 22]);
     P('Реакции свай от продольной силы и моментов у верха ростверка:', { keepNext: true });
     eq(E('F_{i} = ', fr('N', 'n'), ' + ', fr(E('M_{x,tot}·', pr('x_{i} − x̄')), E('Σ', pw(pr('x_{i} − x̄'), '2'))), ' + ',
       fr(E('M_{y,tot}·', pr('y_{i} − ȳ')), E('Σ', pw(pr('y_{i} − ȳ'), '2')))));
     P(['где центр тяжести свайного поля x̄ = ', `${f(r.xbar)} мм, ȳ = ${f(r.ybar)} мм; моменты относительно центра тяжести свай с учётом смещения колонны `,
-      m(`M_{x,tot} = M_{x} + N·(x_{col} − x̄) = ${f(r.MxTot)} кН·м`), ', ', m(`M_{y,tot} = ${f(r.MyTot)} кН·м`), '.']);
+      m(`M_{x,tot} = M_{x} + N·(x_{col} − x̄) = ${fF(r.MxTot)} кН·м`), ', ', m(`M_{y,tot} = ${fF(r.MyTot)} кН·м`), '.']);
     image(o.images && o.images.plan, 'Схема ростверка (начало координат — угол у проверяемой сваи)', 400);
     const ms = r.mesh;
     if (ms) {
@@ -22504,7 +22519,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     // ---------- 3. Расчётные характеристики ----------
     children.push(heading('3. Расчётные характеристики и размеры'));
     P(`Бетон класса ${p.concrete}, γ_{b1} = ${f(p.gammaB1)} (СП 63, табл. 6.8):`, { keepNext: true });
-    eq(`R_{bt} = ${f(r.Rbt)} МПа = ${f(RbtCm)} кН/см^{2};   R_{b} = ${f(r.Rb)} МПа = ${f(RbCm)} кН/см^{2}.`);
+    eq(`R_{bt} = ${f(r.Rbt)} МПа = ${fR(RbtCm)} кН/см^{2};   R_{b} = ${f(r.Rb)} МПа = ${fR(RbCm)} кН/см^{2}.`);
     P(`Рабочая арматура ${p.rebarClass}, R_{s} = ${f(r.Rs, 0)} МПа (СП 63, табл. 6.14):`, { keepNext: true });
     eq(E('A_{s,x} = ', fr(`${p.nx}·π·${f(p.dsx / 10)}^{2}`, '4'), ` = ${f(r.Asx)} см^{2};   A_{s,y} = `, fr(`${p.ny}·π·${f(p.dsy / 10)}^{2}`, '4'), ` = ${f(r.Asy)} см^{2};`), true);
     eq(E('ξ_{R} = ', fr('0,8', E('1 + ', fr('R_{s}', 'E_{s}·ε_{b2}'))), ' = ', fr('0,8', E('1 + ', fr(f(r.Rs, 0), '200 000·0,0035'))), ` = ${f(r.xiR)}.`));
@@ -22544,21 +22559,21 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     eq(E('u_{Y} = b_{col} + ', fr('c_{+X} + c_{−X}', '2'), ` = ${f(p.bcol / 10)} + `, fr(`${f(cr.pX)} + ${f(cr.mX)}`, '2'), ` = ${f(v.uY)} см;`), true);
     eq(E('Σ', fr('h_{0}', 'c_{i}'), '·u_{i} = ', fr(f(h0c), f(cr.pX)), `·${f(v.uX)} + `, fr(f(h0c), f(cr.mX)), `·${f(v.uX)} + `,
       fr(f(h0c), f(cr.pY)), `·${f(v.uY)} + `, fr(f(h0c), f(cr.mY)), `·${f(v.uY)} = ${f(v.sum)} см;`), true);
-    eq(E('F_{ult} = ', fr('R_{bt}·h_{0}', 'α'), '·Σ = ', fr(`${f(RbtCm)}·${f(h0c)}`, f(r.alpha, 3)), `·${f(v.sum)} = ${f(v.Fult, 1)} кН.`));
-    P(`Продавливающая сила — удвоенная сумма реакций свай, расположенных вне нижнего основания пирамиды, с наиболее нагруженной стороны от оси колонны (п. 2.3); сваи на оси колонны учитываются по 0,5 с каждой стороны. Вне пирамиды n_{1} = ${v.n1} шт.: ΣF_{+X} = ${f(v.SF.pX, 1)}, ΣF_{−X} = ${f(v.SF.mX, 1)}, ΣF_{+Y} = ${f(v.SF.pY, 1)}, ΣF_{−Y} = ${f(v.SF.mY, 1)} кН.`, { keepNext: true });
-    eq(`F = 2·max ΣF_{i} = 2·${f(v.Fper / 2, 1)} = ${f(v.Fper, 1)} кН;`, true);
-    eq(E('K = ', fr('F', 'F_{ult}'), ' = ', fr(f(v.Fper, 1), f(v.Fult, 1)), ` = ${k3(v.K)}.`));
+    eq(E('F_{ult} = ', fr('R_{bt}·h_{0}', 'α'), '·Σ = ', fr(`${fR(RbtCm)}·${f(h0c)}`, f(r.alpha, 3)), `·${f(v.sum)} = ${fF(v.Fult, 1)} кН.`));
+    P(`Продавливающая сила — удвоенная сумма реакций свай, расположенных вне нижнего основания пирамиды, с наиболее нагруженной стороны от оси колонны (п. 2.3); сваи на оси колонны учитываются по 0,5 с каждой стороны. Вне пирамиды n_{1} = ${v.n1} шт.: ΣF_{+X} = ${fF(v.SF.pX, 1)}, ΣF_{−X} = ${fF(v.SF.mX, 1)}, ΣF_{+Y} = ${fF(v.SF.pY, 1)}, ΣF_{−Y} = ${fF(v.SF.mY, 1)} кН.`, { keepNext: true });
+    eq(`F = 2·max ΣF_{i} = 2·${fF(v.Fper / 2, 1)} = ${fF(v.Fper, 1)} кН;`, true);
+    eq(E('K = ', fr('F', 'F_{ult}'), ' = ', fr(fF(v.Fper, 1), fF(v.Fult, 1)), ` = ${k3(v.K)}.`));
     if (col.variants.some((q) => q.name !== 'К ряду' && (q.pX !== col.variants[0].pX || q.pY !== col.variants[0].pY || q.mX !== col.variants[0].mX || q.mY !== col.variants[0].mY))) {
       table('Варианты пирамиды продавливания (п. 2.5: при многорядном расположении свай — грани под 45°)',
-        ['Вариант', 'F_{ult}, кН', 'F, кН', 'K'], col.variants.map((q) => [q.name, f(q.Fult, 1), f(q.Fper, 1), k3(q.K)]), 1, [40, 20, 20, 20]);
+        ['Вариант', 'F_{ult}, кН', 'F, кН', 'K'], col.variants.map((q) => [q.name, fF(q.Fult, 1), fF(q.Fper, 1), k3(q.K)]), 1, [40, 20, 20, 20]);
     }
     const two = col.two;
     if (two) {
       P('Куст из двух свай — расчёт по пп. 2.6, 2.7 Пособия, формула (8):', { keepNext: true });
       eq(E('F ≤ ', fr(E('2R_{bt}·', sq(fr('h_{0}', 'c_{1}'), '·', pr('b_{col} + c_{2}'), '·h_{0} + ', pr('h_{col} + c_{1}'), '·', pr('b − b_{col}'))), 'α'), ','), true);
       P(`где b_{col} = ${f(two.bcolP)} см и h_{col} = ${f(two.hcolP)} см — размеры колонны поперёк и вдоль линии свай; b = ${f(two.bP)} см — ширина ростверка; c_{1} — от грани колонны до внутренних граней свай (факт ${f(two.c1raw)} см, расчётное ${f(two.c1)} см); c_{2} = ${f(two.c2)} см — от грани колонны до наружной грани ростверка.`, { keepNext: true });
-      eq(E('F_{ult} = ', fr(E(`2·${f(RbtCm)}·`, sq(fr(f(h0c), f(two.c1)), `·(${f(two.bcolP)} + ${f(two.c2)})·${f(h0c)} + (${f(two.hcolP)} + ${f(two.c1)})·(${f(two.bP)} − ${f(two.bcolP)})`)), f(r.alpha, 3)), ` = ${f(two.Fult, 1)} кН;`), true);
-      eq(E(`F = 2·F_{max} = ${f(two.Fper, 1)} кН (п. 2.7);   K = `, fr(f(two.Fper, 1), f(two.Fult, 1)), ` = ${k3(two.K)}.`));
+      eq(E('F_{ult} = ', fr(E(`2·${fR(RbtCm)}·`, sq(fr(f(h0c), f(two.c1)), `·(${f(two.bcolP)} + ${f(two.c2)})·${f(h0c)} + (${f(two.hcolP)} + ${f(two.c1)})·(${f(two.bP)} − ${f(two.bcolP)})`)), f(r.alpha, 3)), ` = ${fF(two.Fult, 1)} кН;`), true);
+      eq(E(`F = 2·F_{max} = ${fF(two.Fper, 1)} кН (п. 2.7);   K = `, fr(fF(two.Fper, 1), fF(two.Fult, 1)), ` = ${k3(two.K)}.`));
     }
     children.push(conclusion(col.K));
     image(o.images && o.images.column, 'Схема продавливания колонной', 330);
@@ -22568,8 +22583,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     children.push(heading('4.1. Продавливание колонной по СП 63.13330.2018', 2));
     P('Расчётный контур — на расстоянии 0,5·h_{0} от граней колонны (пп. 8.1.46, 8.1.47); продавливающая сила — за вычетом реакций свай, расположенных в пределах основания пирамиды продавливания (п. 8.1.46); половина моментов в колонне учитывается при продавливании, моментный член не более 0,5·F/F_{b,ult} (ф. (8.95)).', { keepNext: true });
     eq(`L_{x} = b_{col} + h_{0} = ${f(cc.Lx)} см;   L_{y} = h_{col} + h_{0} = ${f(cc.Ly)} см;   u = ${f(cc.u)} см;`, true);
-    eq(`F_{b,ult} = R_{bt}·u·h_{0} = ${f(RbtCm)}·${f(cc.u)}·${f(h0c)} = ${f(cc.Fb, 1)} кН;   F = ${f(cc.F, 1)} кН (свай вне основания пирамиды: ${cc.nOut});`, true);
-    eq(`M_{X} = 0,5·M_{x} = ${f(cc.MX)} кН·м;   M_{Y} = 0,5·M_{y} = ${f(cc.MY)} кН·м;   M_{bX,ult} = ${f(cc.MbX)} кН·м;   M_{bY,ult} = ${f(cc.MbY)} кН·м;`, true);
+    eq(`F_{b,ult} = R_{bt}·u·h_{0} = ${fR(RbtCm)}·${f(cc.u)}·${f(h0c)} = ${fF(cc.Fb, 1)} кН;   F = ${fF(cc.F, 1)} кН (свай вне основания пирамиды: ${cc.nOut});`, true);
+    eq(`M_{X} = 0,5·M_{x} = ${fF(cc.MX)} кН·м;   M_{Y} = 0,5·M_{y} = ${fF(cc.MY)} кН·м;   M_{bX,ult} = ${fF(cc.MbX)} кН·м;   M_{bY,ult} = ${fF(cc.MbY)} кН·м;`, true);
     eq(E('K = ', fr('F', 'F_{b,ult}'), ' + min', pr(fr('M_{X}', 'M_{bX,ult}'), ' + ', fr('M_{Y}', 'M_{bY,ult}'), '; 0,5·', fr('F', 'F_{b,ult}')), ` = ${k3(cc.K)}.`));
     if (!cc.inSlab) P('Контур выходит за край ростверка — расчёт по замкнутому контуру приближённый.');
     children.push(conclusion(cc.K));
@@ -22580,15 +22595,15 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       children.push(heading('4.2. Продавливание плиты ступенью', 2));
       P(`Ступень ${f(r.step.L, 0)} × ${f(r.step.B, 0)} мм передаёт нагрузку на плиту высотой h = ${f(p.h, 0)} мм и проверяется как колонна, продавливающая плиту (Пособие пп. 2.2–2.7; СП 63 п. 8.1.46): c_{i} — от граней ступени до внутренних граней свай, рабочая высота плиты h_{0} = ${f(h0)} см, α = 1. Расстояния c_{+X} / c_{−X} / c_{+Y} / c_{−Y} = ${[SP.cSide.pX, SP.cSide.mX, SP.cSide.pY, SP.cSide.mY].map((v) => f(v, 0)).join(' / ')} мм.`, { keepNext: true });
       if (SP.two) {
-        eq(E(`F_{ult} = ${f(SP.two.Fult, 1)} кН (ф. (8));   F = ${f(SP.two.Fper, 1)} кН;   K = `, fr(f(SP.two.Fper, 1), f(SP.two.Fult, 1)), ` = ${k3(SP.two.K)}.`));
+        eq(E(`F_{ult} = ${fF(SP.two.Fult, 1)} кН (ф. (8));   F = ${fF(SP.two.Fper, 1)} кН;   K = `, fr(fF(SP.two.Fper, 1), fF(SP.two.Fult, 1)), ` = ${k3(SP.two.K)}.`));
       } else {
         const g2 = gv.cr;
         eq(`c_{+X} = ${f(g2.pX)} см;   c_{−X} = ${f(g2.mX)} см;   c_{+Y} = ${f(g2.pY)} см;   c_{−Y} = ${f(g2.mY)} см;   u_{X} = ${f(gv.uX)} см;   u_{Y} = ${f(gv.uY)} см;`, true);
-        eq(E(`F_{ult} = R_{bt}·h_{0}·Σ = ${f(RbtCm)}·${f(h0)}·${f(gv.sum)} = ${f(gv.Fult, 1)} кН;   F = ${f(gv.Fper, 1)} кН;   K = `, fr(f(gv.Fper, 1), f(gv.Fult, 1)), ` = ${k3(gv.K)}.`));
+        eq(E(`F_{ult} = R_{bt}·h_{0}·Σ = ${fR(RbtCm)}·${f(h0)}·${f(gv.sum)} = ${fF(gv.Fult, 1)} кН;   F = ${fF(gv.Fper, 1)} кН;   K = `, fr(fF(gv.Fper, 1), fF(gv.Fult, 1)), ` = ${k3(gv.K)}.`));
       }
       P('По СП 63 — контур на расстоянии 0,5·h_{0} от граней ступени:', { keepNext: true });
       eq(`L_{x} = l_{2} + h_{0} = ${f(ss.Lx)} см;   L_{y} = b_{2} + h_{0} = ${f(ss.Ly)} см;   u = ${f(ss.u)} см;`, true);
-      eq(`F_{b,ult} = R_{bt}·u·h_{0} = ${f(RbtCm)}·${f(ss.u)}·${f(h0)} = ${f(ss.Fb, 1)} кН;   F = ${f(ss.F, 1)} кН;   K = ${k3(ss.K)}.`);
+      eq(`F_{b,ult} = R_{bt}·u·h_{0} = ${fR(RbtCm)}·${f(ss.u)}·${f(h0)} = ${fF(ss.Fb, 1)} кН;   F = ${fF(ss.F, 1)} кН;   K = ${k3(ss.K)}.`);
       children.push(conclusion(Math.max(SP.K, ss.K)));
     }
 
@@ -22606,16 +22621,16 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         P(`b_{01} = ${f(c.b01, 0)} мм; b_{02} = ${f(c.b02, 0)} мм; фактические c_{01} = ${f(r.c01raw + r.delta, 0)} мм, c_{02} = ${f(r.c02raw + r.delta, 0)} мм; расчётные c_{01} = ${f(c.c01, 0)} мм, c_{02} = ${f(c.c02, 0)} мм (0,4·h_{01} = ${f(0.4 * r.h01, 0)} мм ≤ c_{0i} ≤ h_{01} = ${f(r.h01, 0)} мм).`, { keepNext: true });
         eq(E(fr('h_{01}', 'c_{01}'), ' = ', fr(f(r.h01, 0), f(c.c01, 0)), ` = ${f(c.ratio1)} → β_{1} = ${f(c.beta1)};   `,
           fr('h_{01}', 'c_{02}'), ' = ', fr(f(r.h01, 0), f(c.c02, 0)), ` = ${f(c.ratio2)} → β_{2} = ${f(c.beta2)};`), true);
-        eq(E(`F_{ult} = ${f(RbtCm)}·${f(h01)}·`, sq(`${f(c.beta1)}·`, pr(`${f(c.b02 / 10)} + `, fr(f(c.c02 / 10), '2')), ` + ${f(c.beta2)}·`, pr(`${f(c.b01 / 10)} + `, fr(f(c.c01 / 10), '2'))), ` = ${f(c.Fult, 1)} кН.`));
+        eq(E(`F_{ult} = ${fR(RbtCm)}·${f(h01)}·`, sq(`${f(c.beta1)}·`, pr(`${f(c.b02 / 10)} + `, fr(f(c.c02 / 10), '2')), ` + ${f(c.beta2)}·`, pr(`${f(c.b01 / 10)} + `, fr(f(c.c01 / 10), '2'))), ` = ${fF(c.Fult, 1)} кН.`));
         P(`Продавливающая сила принята равной полной нагрузке на сваю (без вычета нагрузки, приложенной над сваей) — в запас. Определяющее направление допуска на смещение сваи — ${c.shiftText}${r.shiftBoth ? ` (K внутрь / к краям: ${k3(r.shiftBoth.cornerIn)} / ${k3(r.shiftBoth.cornerOut)})` : ''}.`, { keepNext: true });
-        eq(E('K = ', fr('F', 'F_{ult}'), ' = ', fr(f(c.Fper, 1), f(c.Fult, 1)), ` = ${k3(c.K)}.`));
+        eq(E('K = ', fr('F', 'F_{ult}'), ' = ', fr(fF(c.Fper, 1), fF(c.Fult, 1)), ` = ${k3(c.K)}.`));
         children.push(conclusion(c.K));
       }
       image(o.images && o.images.corner, 'Схема продавливания угловой сваей', 330);
       if (r.allCorners && r.allCorners.length) {
         table('Проверка всех угловых свай куста (нагрузка — реакция сваи из таблицы; Пособие п. 2.9 и СП 63)',
           ['Угол ростверка', 'Свая', 'F, кН', 'K по п. 2.9', 'K по СП 63'],
-          r.allCorners.map((q) => [q.name, String(q.pile), f(q.F, 1), isNum(q.Kcorner) ? k3(q.Kcorner) : q.cornerStatus, k3(q.Ksp)]), 1, [30, 12, 18, 20, 20]);
+          r.allCorners.map((q) => [q.name, String(q.pile), fF(q.F, 1), isNum(q.Kcorner) ? k3(q.Kcorner) : q.cornerStatus, k3(q.Ksp)]), 1, [30, 12, 18, 20, 20]);
       }
       sec += 1;
     }
@@ -22631,25 +22646,25 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       eq(E(fr('F', 'F_{b,ult}'), ' + ', fr('M_{X}', 'M_{bX,ult}'), ' + ', fr('M_{Y}', 'M_{bY,ult}'), ' ≤ 1;   ',
         fr('M_{X}', 'M_{bX,ult}'), ' + ', fr('M_{Y}', 'M_{bY,ult}'), ` ≤ ${f(p.kLim)}·`, fr('F', 'F_{b,ult}'), '.'));
       if (g) {
-        P(`Определяющий контур — «${g.name}», направление допуска — ${sp.shiftText || r.shiftText}. Нагрузка на сваю F = ${f(p.F1, 1)} кН.`, { keepNext: true });
+        P(`Определяющий контур — «${g.name}», направление допуска — ${sp.shiftText || r.shiftText}. Нагрузка на сваю F = ${fF(p.F1, 1)} кН.`, { keepNext: true });
         eq(`d = 0,5·h_{0} = ${f(g.d)} см;   L_{x} = ${f(g.Lx)} см;   L_{y} = ${f(g.Ly)} см;   u = ${f(g.u)} см;`, true);
-        eq(`F_{b,ult} = R_{bt}·u·h_{0} = ${f(RbtCm)}·${f(g.u)}·${f(h0)} = ${f(g.Fb, 1)} кН;`, true);
+        eq(`F_{b,ult} = R_{bt}·u·h_{0} = ${fR(RbtCm)}·${f(g.u)}·${f(h0)} = ${fF(g.Fb, 1)} кН;`, true);
         P(`Центр тяжести контура x_{0} = ${f(g.x0)} см, y_{0} = ${f(g.y0)} см; эксцентриситеты силы e_{0X} = ${f(g.e0X)} см, e_{0Y} = ${f(g.e0Y)} см.`, { keepNext: true });
         eq(E('W_{bX} = ', fr('I_{bX}', 'y_{max}'), ' = ', fr(f(g.IX, 0), f(g.IX / g.WX)), ` = ${f(g.WX)} см^{2};   W_{bY} = `, fr(f(g.IY, 0), f(g.IY / g.WY)), ` = ${f(g.WY)} см^{2};`), true);
-        eq(`M_{bX,ult} = R_{bt}·W_{bX}·h_{0} = ${f(RbtCm)}·${f(g.WX)}·${f(h0)}·10^{−2} = ${f(g.MbX)} кН·м;   M_{bY,ult} = ${f(g.MbY)} кН·м;`, true);
-        eq(`M_{X} = k_{M}·M_{св,X} + F·e_{0X} = ${f(p.kM)}·${fp(p.MXpile)} + ${f(p.F1)}·${fp(g.e0X)}·10^{−2} = ${f(g.MX)} кН·м;   M_{Y} = ${f(g.MY)} кН·м;`, true);
+        eq(`M_{bX,ult} = R_{bt}·W_{bX}·h_{0} = ${fR(RbtCm)}·${f(g.WX)}·${f(h0)}·10^{−2} = ${fF(g.MbX)} кН·м;   M_{bY,ult} = ${fF(g.MbY)} кН·м;`, true);
+        eq(`M_{X} = k_{M}·M_{св,X} + F·e_{0X} = ${f(p.kM)}·${fpF(p.MXpile)} + ${fF(p.F1)}·${fp(g.e0X)}·10^{−2} = ${fF(g.MX)} кН·м;   M_{Y} = ${fF(g.MY)} кН·м;`, true);
         eq(E('K = ', fr('F', 'F_{b,ult}'), ' + min', pr(fr('|M_{X}|', 'M_{bX,ult}'), ' + ', fr('|M_{Y}|', 'M_{bY,ult}'), `; ${f(p.kLim)}·`, fr('F', 'F_{b,ult}')),
           ` = ${f(g.FFb)} + ${f(g.mTerm)} = ${k3(g.Kb)}.`));
       }
       table('Расчётные контуры по СП 63', ['Контур', 'Действует', 'u, см', 'F_{b,ult}, кН', 'K_{b}'],
-        sp.variants.map((q) => [q.name, q.active ? 'да' : q.off === 'far' ? 'нет (свая не у края)' : q.off === 'edge' ? 'нет (за краем)' : 'нет', f(q.u), f(q.Fb, 1), q.active ? k3(q.Kb) : '—']), 1, [22, 24, 16, 22, 16]);
+        sp.variants.map((q) => [q.name, q.active ? 'да' : q.off === 'far' ? 'нет (свая не у края)' : q.off === 'edge' ? 'нет (за краем)' : 'нет', f(q.u), fF(q.Fb, 1), q.active ? k3(q.Kb) : '—']), 1, [22, 24, 16, 22, 16]);
       children.push(conclusion(sp.K, 'прочность без поперечной арматуры обеспечена.', useSw ? 'прочность бетона недостаточна, учитывается поперечная арматура.' : 'прочность НЕ обеспечена.'));
       if (useSw && g) {
         children.push(heading(`${sec}.1. Учёт поперечной арматуры`, 2));
         P(`Поперечная арматура ${p.swClass} Ø${p.dsw} мм, шаг вдоль контура s_{w} = ${p.sw} мм, рядов в полосе ±0,5·h_{0} — ${p.nr}, ширина зоны армирования z_{w} = ${p.zw} мм.`, { keepNext: true });
-        eq(E('q_{sw} = ', fr('R_{sw}·A_{sw}', 's_{w}'), ' = ', fr(`${f(RswCm)}·${p.nr}·π·${f(p.dsw / 10)}^{2}`, `4·${f(p.sw / 10)}`), ` = ${f(g.qsw)} кН/см;   F_{sw,ult} = 0,8·q_{sw}·u = ${f(g.Fsw, 1)} кН;`), true);
-        eq(`F_{ult} = F_{b,ult} + F_{sw,ult} ≤ 2·F_{b,ult};   F_{ult} = ${f(g.Fult, 1)} кН;`, true);
-        P(`F_{sw,ult} учитывается при F_{sw,ult} ≥ 0,25·F_{b,ult} — условие ${sp.swCounted ? 'выполняется' : 'НЕ выполняется, требуется увеличить A_{sw}'}. Предельные моменты M_{X,ult} = ${f(g.MXult)} кН·м, M_{Y,ult} = ${f(g.MYult)} кН·м; коэффициент по формуле (8.96):`, { keepNext: true });
+        eq(E('q_{sw} = ', fr('R_{sw}·A_{sw}', 's_{w}'), ' = ', fr(`${fR(RswCm)}·${p.nr}·π·${f(p.dsw / 10)}^{2}`, `4·${f(p.sw / 10)}`), ` = ${fF(g.qsw)} кН/см;   F_{sw,ult} = 0,8·q_{sw}·u = ${fF(g.Fsw, 1)} кН;`), true);
+        eq(`F_{ult} = F_{b,ult} + F_{sw,ult} ≤ 2·F_{b,ult};   F_{ult} = ${fF(g.Fult, 1)} кН;`, true);
+        P(`F_{sw,ult} учитывается при F_{sw,ult} ≥ 0,25·F_{b,ult} — условие ${sp.swCounted ? 'выполняется' : 'НЕ выполняется, требуется увеличить A_{sw}'}. Предельные моменты M_{X,ult} = ${fF(g.MXult)} кН·м, M_{Y,ult} = ${fF(g.MYult)} кН·м; коэффициент по формуле (8.96):`, { keepNext: true });
         eq(`K_{sw} = ${k3(sp.Ksw)}.`);
         children.push(conclusion(sp.Ksw));
         P(['Проверка за границей зоны поперечного армирования (контур на расстоянии z_{w} + 0,5·h_{0} от граней сваи, Пособие к СП 52-101, п. 3.86): ', m(`K_{b} = ${k3(sp.KbOut)} ${sp.KbOut <= 1 ? '≤' : '>'} 1`), '.']);
@@ -22673,23 +22688,23 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     P('По Пособию п. 2.15 прочность обеспечена, если поперечная сила не менее чем в 1,25 раза меньше Q по ф. (15) при h_{0}/c = 0,5, т. е. Q ≤ 0,6·R_{bt}·b·h_{0}; иначе проверяется анкеровка у крайнего ряда свай по ф. (27)–(31):', { keepNext: true });
     eq(E('M_{sec} = ', pr('c + ', fr('d_{sv}', '2')), '·ΣF_{i};   A_{s,cal} = ', fr('M_{sec}', '0,9·h_{0}·R_{s}'), ';   l_{an} = ', pr('0,5·', fr('R_{s}', 'R_{b}'), '·', fr('A_{s,cal}', 'A_{s,fac}'), ' + 8'), '·d ≥ 12d;   l_{fac} = d_{sv} + l_{0} − a ≥ l_{an}.'));
     const rowsOf = (se) => [
-      ['Поперечная сила Q, кН', ...se.map((q) => f(q.Q, 1))],
-      ['Q_{ult} = 0,3·R_{b}·b·h_{0}, кН', ...se.map((q) => f(q.Qstrip, 1))],
+      ['Поперечная сила Q, кН', ...se.map((q) => fF(q.Q, 1))],
+      ['Q_{ult} = 0,3·R_{b}·b·h_{0}, кН', ...se.map((q) => fF(q.Qstrip, 1))],
       ['K = Q/Q_{ult}', ...se.map((q) => k3(q.Kstrip))],
       ['c, см (ближайший ряд / определяющий)', ...se.map((q) => `${f(q.c)} / ${f(q.shearGov.c / 10)}`)],
-      ['Q_{b}, кН (определяющее сечение)', ...se.map((q) => f(q.shearGov.Qb, 1))],
+      ['Q_{b}, кН (определяющее сечение)', ...se.map((q) => fF(q.shearGov.Qb, 1))],
       ['K = Q/Q_{b}', ...se.map((q) => k3(q.KQb))],
-      ['M, кН·м', ...se.map((q) => f(q.M, 1))],
+      ['M, кН·м', ...se.map((q) => fF(q.M, 1))],
       ['A_{s}, см^{2}', ...se.map((q) => f(q.As))],
       ['x, см / ξ', ...se.map((q) => `${f(q.x)} / ${f(q.xi)}`)],
-      ['M_{ult}, кН·м', ...se.map((q) => f(q.Mult, 1))],
+      ['M_{ult}, кН·м', ...se.map((q) => fF(q.Mult, 1))],
       ['K = M/M_{ult}', ...se.map((q) => k3(q.Kbend))],
       ['A_{s,тр}, см^{2}', ...se.map((q) => (q.AsReq === null ? 'увеличить h' : f(q.AsReq)))],
       ['l_{s} / l_{an}, мм', ...se.map((q) => `${f(q.ls, 0)} / ${f(q.lan, 0)}`)],
-      ['N_{s}, кН', ...se.map((q) => f(q.Ns, 1))],
-      ['M_{s}, кН·м', ...se.map((q) => f(q.Ms, 1))],
+      ['N_{s}, кН', ...se.map((q) => fF(q.Ns, 1))],
+      ['M_{s}, кН·м', ...se.map((q) => fF(q.Ms, 1))],
       ['K = M/M_{s} (СП 63)', ...se.map((q) => k3(q.KMs))],
-      ['Q_{lim} = 0,6·R_{bt}·b·h_{0}, кН', ...se.map((q) => f(q.anchorP.QlimP, 1))],
+      ['Q_{lim} = 0,6·R_{bt}·b·h_{0}, кН', ...se.map((q) => fF(q.anchorP.QlimP, 1))],
       ['l_{an} / l_{fac}, мм (Пособие)', ...se.map((q) => (isNum(q.anchorP.lanP) ? `${f(q.anchorP.lanP, 0)} / ${f(q.anchorP.lfac, 0)}` : 'не треб.'))],
       ['K (Пособие п. 2.15)', ...se.map((q) => k3(q.anchorP.K))],
     ];
@@ -22713,26 +22728,26 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     P(`Наклонное сечение по поперечной силе, определяющее — «${sQ.name}»:`, { keepNext: true });
     const gq = sQ.shearGov, cq = Math.max(gq.c / 10, 0.1);
     const QbRaw = 1.5 * RbtCm * sQ.bw * sQ.h0 ** 2 / cq;
-    eq(E('Q_{b} = ', fr(`1,5·${f(RbtCm)}·${f(sQ.bw)}·${f(sQ.h0)}^{2}`, f(cq)), ` = ${f(QbRaw, 1)} кН`,
-      Math.abs(QbRaw - gq.Qb) > 0.05 ? ` → ${QbRaw > gq.Qb ? '2,5' : '0,5'}·R_{bt}·b·h_{0} = ${f(gq.Qb, 1)} кН;` : ';'), true);
-    eq(E('K = ', fr('Q', 'Q_{b}'), ' = ', fr(f(gq.Q, 1), f(gq.Qb, 1)), ` = ${k3(sQ.KQb)}.`));
+    eq(E('Q_{b} = ', fr(`1,5·${fR(RbtCm)}·${f(sQ.bw)}·${f(sQ.h0)}^{2}`, f(cq)), ` = ${f(QbRaw, 1)} кН`,
+      Math.abs(QbRaw - gq.Qb * kf) > 0.05 * kf ? ` → ${QbRaw > gq.Qb * kf ? '2,5' : '0,5'}·R_{bt}·b·h_{0} = ${fF(gq.Qb, 1)} кН;` : ';'), true);
+    eq(E('K = ', fr('Q', 'Q_{b}'), ' = ', fr(fF(gq.Q, 1), fF(gq.Qb, 1)), ` = ${k3(sQ.KQb)}.`));
     P(`Нормальное сечение, определяющее — «${sM.name}»:`, { keepNext: true });
-    eq(E('x = ', fr(`${f(RsCm)}·${f(sM.As)}`, `${f(RbCm)}·${f(sM.bwC)}`), ` = ${f(sM.x)} см;   ξ = ${f(sM.xi)} ${sM.xi <= r.xiR ? '≤' : '>'} ξ_{R} = ${f(r.xiR)};`), true);
-    eq(E(`M_{ult} = ${f(RsCm)}·${f(sM.As)}·`, pr(`${f(sM.h0)} − 0,5·${f(sM.x)}`), `·10^{−2} = ${f(sM.Mult, 1)} кН·м;   K = `, fr('M', 'M_{ult}'), ' = ', fr(f(sM.M, 1), f(sM.Mult, 1)), ` = ${k3(sM.Kbend)}.`));
+    eq(E('x = ', fr(`${fR(RsCm)}·${f(sM.As)}`, `${fR(RbCm)}·${f(sM.bwC)}`), ` = ${f(sM.x)} см;   ξ = ${f(sM.xi)} ${sM.xi <= r.xiR ? '≤' : '>'} ξ_{R} = ${f(r.xiR)};`), true);
+    eq(E(`M_{ult} = ${fR(RsCm)}·${f(sM.As)}·`, pr(`${f(sM.h0)} − 0,5·${f(sM.x)}`), `·10^{−2} = ${fF(sM.Mult, 1)} кН·м;   K = `, fr('M', 'M_{ult}'), ' = ', fr(fF(sM.M, 1), fF(sM.Mult, 1)), ` = ${k3(sM.Kbend)}.`));
     P(`Наклонное сечение по моменту по СП 63, определяющее — «${sA.name}»:`, { keepNext: true });
     const dsA = sA.name.includes('X') ? p.dsx : p.dsy;
     eq(E('l_{an} = ', r.lanRed ? `(1 − ${f(r.lanRed, 2)})·` : '', fr(`${f(r.Rs, 0)}·${f(dsA, 0)}`, `4·${f(p.eta1)}·${dsA > 32 ? '0,9' : '1'}·${f(r.Rbt)}`), ` = ${f(sA.lan, 0)} мм;   l_{s} = ${f(sA.ls, 0)} мм;`), true);
-    eq(E('N_{s} = ', fr(`${f(RsCm)}·${f(sA.As)}·${f(Math.max(0, Math.min(sA.ls, sA.lan)), 0)}`, f(sA.lan, 0)), ` = ${f(sA.Ns, 1)} кН;   M_{s} = ${f(sA.Ns, 1)}·0,9·${f(sA.h0)}·10^{−2} = ${f(sA.Ms, 1)} кН·м;`), true);
-    eq(E('K = ', fr('M', 'M_{s}'), ' = ', fr(f(sA.M, 1), f(sA.Ms, 1)), ` = ${k3(sA.KMs)}.`));
+    eq(E('N_{s} = ', fr(`${fR(RsCm)}·${f(sA.As)}·${f(Math.max(0, Math.min(sA.ls, sA.lan)), 0)}`, f(sA.lan, 0)), ` = ${fF(sA.Ns, 1)} кН;   M_{s} = ${fF(sA.Ns, 1)}·0,9·${f(sA.h0)}·10^{−2} = ${fF(sA.Ms, 1)} кН·м;`), true);
+    eq(E('K = ', fr('M', 'M_{s}'), ' = ', fr(fF(sA.M, 1), fF(sA.Ms, 1)), ` = ${k3(sA.KMs)}.`));
     const sP = se.reduce((a, b) => (b.anchorP.K > a.anchorP.K ? b : a));
     const ap = sP.anchorP;
     P(`По Пособию п. 2.15, определяющее — «${sP.name}»:`, { keepNext: true });
     if (!ap.needP) {
-      eq(`Q = ${f(sP.Q, 1)} кН ≤ 0,6·R_{bt}·b·h_{0} = ${f(ap.QlimP, 1)} кН — прочность наклонного сечения по моменту обеспечена.`);
+      eq(`Q = ${fF(sP.Q, 1)} кН ≤ 0,6·R_{bt}·b·h_{0} = ${fF(ap.QlimP, 1)} кН — прочность наклонного сечения по моменту обеспечена.`);
     } else if (isNum(ap.lanP)) {
       const dsP = sP.name.includes('X') ? p.dsx : p.dsy;
-      eq(`Q = ${f(sP.Q, 1)} кН > 0,6·R_{bt}·b·h_{0} = ${f(ap.QlimP, 1)} кН — требуется проверка анкеровки;`, true);
-      eq(E(`M_{sec} = (${f(ap.cExt, 0)} + ${f(r.bp, 0)}/2)·${f(ap.Fext, 1)}·10^{−3} = ${f(ap.Msec, 1)} кН·м;   A_{s,cal} = `, fr(`${f(ap.Msec, 1)}·10^{2}`, `0,9·${f(sP.h0)}·${f(RsCm)}`), ` = ${f(ap.AsCal)} см^{2};`), true);
+      eq(`Q = ${fF(sP.Q, 1)} кН > 0,6·R_{bt}·b·h_{0} = ${fF(ap.QlimP, 1)} кН — требуется проверка анкеровки;`, true);
+      eq(E(`M_{sec} = (${f(ap.cExt, 0)} + ${f(r.bp, 0)}/2)·${fF(ap.Fext, 1)}·10^{−3} = ${fF(ap.Msec, 1)} кН·м;   A_{s,cal} = `, fr(`${fF(ap.Msec, 1)}·10^{2}`, `0,9·${f(sP.h0)}·${fR(RsCm)}`), ` = ${f(ap.AsCal)} см^{2};`), true);
       eq(E('l_{an} = ', pr(`0,5·`, fr(f(r.Rs, 0), f(r.Rb)), '·', fr(f(ap.AsCal), f(sP.As)), ' + 8'), `·${f(dsP, 0)} = ${f(ap.lanP, 0)} мм (не менее 12d);   l_{fac} = ${f(r.bp, 0)} + ${f(ap.l0, 0)} − ${f(p.cover, 0)} = ${f(ap.lfac, 0)} мм;`), true);
       eq(E('K = ', fr('l_{an}', 'l_{fac}'), ' = ', fr(f(ap.lanP, 0), f(ap.lfac, 0)), ` = ${k3(ap.K)}.`));
     } else {
@@ -22745,8 +22760,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       P('Проверки наклонного сечения по моменту по СП 63 и по Пособию различаются расчётной схемой; сравнение приведено в таблице.', { keepNext: true });
       table('Сравнение проверок наклонного сечения по моменту', ['Параметр', 'СП 63 п. 8.1.35', 'Пособие п. 2.15'], [
         ['Статус', A.used === 'sp' ? 'принята в итог' : 'для сравнения', A.used === 'pos' ? 'принята в итог' : 'для сравнения'],
-        ['Когда проверка не нужна', 'выполняется всегда', `при Q ≤ 0,6·R_{bt}·b·h_{0} (${f(s2.Q, 1)} ${s2.needP ? '>' : '≤'} ${f(s2.QlimP, 1)} кН)`],
-        ['Расчётный момент, кН·м', `M по грани колонны = ${f(s1.M, 1)}`, pa ? `M_{sec} у крайнего ряда свай = ${f(s2.Msec, 1)}` : '—'],
+        ['Когда проверка не нужна', 'выполняется всегда', `при Q ≤ 0,6·R_{bt}·b·h_{0} (${fF(s2.Q, 1)} ${s2.needP ? '>' : '≤'} ${fF(s2.QlimP, 1)} кН)`],
+        ['Расчётный момент, кН·м', `M по грани колонны = ${fF(s1.M, 1)}`, pa ? `M_{sec} у крайнего ряда свай = ${fF(s2.Msec, 1)}` : '—'],
         ['Требуемая длина анкеровки, мм', `l_{an} по сцеплению = ${f(s1.lan, 0)}`, pa ? `l_{an} с учётом A_{s,cal}/A_{s,fac} = ${f(s2.lanP, 0)}` : '—'],
         ['Фактическая длина заделки, мм', `l_{s} = ${f(s1.ls, 0)}`, pa ? `l_{fac} = ${f(s2.lfac, 0)}` : '—'],
         ['Определяющее сечение', s1.sec, s2.sec],
@@ -22773,17 +22788,17 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       const cm = (x) => f(x / 10, 1);
       eq(E(`A_{b,loc} = ${Math.abs(v.Abloc - v.bx * v.by) > 1 ? 'π·' + cm(r.input.pileSize) + '^{2}/4' : cm(v.bx) + '·' + cm(v.by)} = ${f(v.Abloc / 100, 0)} см^{2};   A_{b,max} = `, pr(`${cm(v.bx)} + 2·${cm(v.cx)}`), '·', pr(`${cm(v.by)} + 2·${cm(v.cy)}`), ` = ${f(v.Abmax / 100, 0)} см^{2};`), true);
       eq(E('φ_{b} = 0,8·', rt(fr(f(v.Abmax / 100, 0), f(v.Abloc / 100, 0))), ` = ${f(v.phiRaw, 3)}${v.phi !== v.phiRaw ? ` → ${f(v.phi, 2)}` : ''};   R_{b,loc} = ${f(v.phi, 3)}·${f(r.Rb)} = ${f(v.Rbloc)} МПа;`), true);
-      eq(`N_{ult} = ψ·R_{b,loc}·A_{b,loc} = ${f(v.psi, 2)}·${f(v.Rbloc)}·${f(v.Abloc / 100, 0)}·10^{−1} = ${f(v.Nult, 1)} кН;   K = ${f(v.N, 1)}/${f(v.Nult, 1)} = ${k3(v.K)}.`, true);
+      eq(`N_{ult} = ψ·R_{b,loc}·A_{b,loc} = ${f(v.psi, 2)}·${f(v.Rbloc)}·${f(v.Abloc / 100, 0)}·10^{${UNIT_T ? '−2' : '−1'}} = ${fF(v.Nult, 1)} кН;   K = ${fF(v.N, 1)}/${fF(v.Nult, 1)} = ${k3(v.K)}.`, true);
       children.push(conclusion(v.K, `прочность ${name} на местное сжатие обеспечена.`, `прочность ${name} на местное сжатие НЕ обеспечена: требуется косвенное армирование сетками (СП 63 п. 8.1.45; Пособие по ростверкам п. 4.11) или увеличение площади опирания.`));
     };
     if (L.column) {
       const c = L.column;
       if (c.kind === 'bolt') {
-        P(`Под торцом сборной колонны, опирающейся на ростверк через подливку и закреплённой на анкерных болтах (башмаки PEIKKO), Пособие по ростверкам п. 2.17. Площадь смятия — торец колонны ${f(c.bx, 0)}×${f(c.by, 0)} мм, сила N = ${f(c.N, 1)} кН (стакана нет, α = 1); A_{b,max} ограничена краями ростверка. Эксцентриситет e_{0} = |M|/N = ${f(c.e0x, 0)} / ${f(c.e0y, 0)} мм ${c.uniform ? '≤' : '>'} h_{c}/6 — ψ = ${f(c.psi, 2)}. Анкерные болты, башмаки и подливка рассчитываются по документации изготовителя.`, { keepNext: true });
+        P(`Под торцом сборной колонны, опирающейся на ростверк через подливку и закреплённой на анкерных болтах (башмаки PEIKKO), Пособие по ростверкам п. 2.17. Площадь смятия — торец колонны ${f(c.bx, 0)}×${f(c.by, 0)} мм, сила N = ${fF(c.N, 1)} кН (стакана нет, α = 1); A_{b,max} ограничена краями ростверка. Эксцентриситет e_{0} = |M|/N = ${f(c.e0x, 0)} / ${f(c.e0y, 0)} мм ${c.uniform ? '≤' : '>'} h_{c}/6 — ψ = ${f(c.psi, 2)}. Анкерные болты, башмаки и подливка рассчитываются по документации изготовителя.`, { keepNext: true });
       } else if (c.steel) {
-        P(`Под опорной плитой базы стальной колонны (Пособие по ростверкам п. 2.21). Площадь смятия — плита ${f(c.bx, 0)}×${f(c.by, 0)} мм, сила N = ${f(c.N, 1)} кН; A_{b,max} ограничена краями ростверка. Эксцентриситет e_{0} = |M|/N = ${f(c.e0x, 0)} / ${f(c.e0y, 0)} мм ${c.uniform ? '≤' : '>'} b/6 — ψ = ${f(c.psi, 2)}.`, { keepNext: true });
+        P(`Под опорной плитой базы стальной колонны (Пособие по ростверкам п. 2.21). Площадь смятия — плита ${f(c.bx, 0)}×${f(c.by, 0)} мм, сила N = ${fF(c.N, 1)} кН; A_{b,max} ограничена краями ростверка. Эксцентриситет e_{0} = |M|/N = ${f(c.e0x, 0)} / ${f(c.e0y, 0)} мм ${c.uniform ? '≤' : '>'} b/6 — ψ = ${f(c.psi, 2)}.`, { keepNext: true });
       } else {
-        P(`У дна стакана под торцом сборной колонны (Пособие по ростверкам пп. 2.17, 2.18; Пособие по фундаментам пп. 2.47, 2.48). Площадь смятия — торец колонны ${f(c.bx, 0)}×${f(c.by, 0)} мм; сила с учётом передачи части нагрузки стенкам стакана N_{c} = α·N = ${f(c.alpha, 3)}·${f(c.Nfull, 1)} = ${f(c.N, 1)} кН; A_{b,max} ограничена ${c.pk ? `размерами подколонника ${f(r.input.bpk, 0)}×${f(r.input.hpk, 0)} мм` : 'краями плиты ростверка'}. Эксцентриситет e_{0} = ${f(c.e0x, 0)} / ${f(c.e0y, 0)} мм ${c.uniform ? '≤' : '>'} h_{c}/6 — ψ = ${f(c.psi, 2)}.`, { keepNext: true });
+        P(`У дна стакана под торцом сборной колонны (Пособие по ростверкам пп. 2.17, 2.18; Пособие по фундаментам пп. 2.47, 2.48). Площадь смятия — торец колонны ${f(c.bx, 0)}×${f(c.by, 0)} мм; сила с учётом передачи части нагрузки стенкам стакана N_{c} = α·N = ${f(c.alpha, 3)}·${fF(c.Nfull, 1)} = ${fF(c.N, 1)} кН; A_{b,max} ограничена ${c.pk ? `размерами подколонника ${f(r.input.bpk, 0)}×${f(r.input.hpk, 0)} мм` : 'краями плиты ростверка'}. Эксцентриситет e_{0} = ${f(c.e0x, 0)} / ${f(c.e0y, 0)} мм ${c.uniform ? '≤' : '>'} h_{c}/6 — ψ = ${f(c.psi, 2)}.`, { keepNext: true });
       }
       locSub(c, { steel: 'ростверка под плитой базы', cup: 'дна стакана', bolt: 'ростверка под торцом колонны' }[c.kind]);
     } else {
@@ -22791,10 +22806,10 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     }
     if (L.pile) {
       const P0 = L.pile, g0 = P0.gov;
-      P(`Над головой сваи: площадь смятия — сечение сваи${P0.round ? `, круглая свая заменена квадратом той же площади со стороной ${f(P0.bEq, 0)} мм` : ''}; A_{b,max} ограничена краями ростверка; ψ = ${f(P0.psi, 2)}${P0.psi < 1 ? ' (в голове сваи действует момент)' : ''}. Определяющая — «${g0.name}», N = ${f(g0.N, 1)} кН:`, { keepNext: true });
+      P(`Над головой сваи: площадь смятия — сечение сваи${P0.round ? `, круглая свая заменена квадратом той же площади со стороной ${f(P0.bEq, 0)} мм` : ''}; A_{b,max} ограничена краями ростверка; ψ = ${f(P0.psi, 2)}${P0.psi < 1 ? ' (в голове сваи действует момент)' : ''}. Определяющая — «${g0.name}», N = ${fF(g0.N, 1)} кН:`, { keepNext: true });
       locSub(g0, 'ростверка над головой сваи');
       table('Местное сжатие над головами свай', ['Свая', 'N, кН', 'φ_{b}', 'N_{ult}, кН', 'K'],
-        P0.rows.map((q) => [q.name, f(q.N, 1), f(q.phi, 3), f(q.Nult, 1), k3(q.K)]), 1, [32, 17, 17, 17, 17]);
+        P0.rows.map((q) => [q.name, fF(q.N, 1), f(q.phi, 3), fF(q.Nult, 1), k3(q.K)]), 1, [32, 17, 17, 17, 17]);
     }
     sec += 1;
 
@@ -22869,9 +22884,9 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         K: worst.K, gov: worst.title, ok: r.overall,
       };
     });
-    build(docx, items[0].r, { name: o.name, items: summary }, Object.assign(ctx, { mode: 'preamble' }));
+    build(docx, items[0].r, { name: o.name, items: summary, units: o.units }, Object.assign(ctx, { mode: 'preamble' }));
     items.forEach((it, i) => build(docx, it.r, it.opts, Object.assign(ctx, { mode: 'chapter', chap: i + 3 })));
-    const { doc, eqs } = build(docx, items[0].r, { notes: o.notes }, Object.assign(ctx, { mode: 'postamble', chap: items.length + 3 }));
+    const { doc, eqs } = build(docx, items[0].r, { notes: o.notes, units: o.units }, Object.assign(ctx, { mode: 'postamble', chap: items.length + 3 }));
     const b64 = await docx.Packer.toBase64String(doc);
     const zip = await JSZip.loadAsync(b64, { base64: true });
     const xml = await zip.file('word/document.xml').async('string');
@@ -22882,7 +22897,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     });
   }
 
-  const VERSION = '2026-10-20.3';
+  const VERSION = '2026-10-20.4';
   return { VERSION, create, createMany, build, omml, injectMath, FONT };
 });
 
@@ -23255,6 +23270,13 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   }
   const k3 = (v) => (isNum(v) ? v.toLocaleString('ru-RU', { minimumFractionDigits: 3, maximumFractionDigits: 3 }) : '—');
   const sg = (v, d) => (v < 0 ? `(${n(v, d)})` : n(v, d)); // отрицательное в подстановке — в скобках
+  // Единицы сил: кН или тс (1 тс = 10 кН). В тс пересчитываются все величины на основе кН — силы, моменты,
+  // сопротивления в кН/см², q_sw, — поэтому подстановки остаются верными; в готовом тексте «кН» → «тс»
+  let KF = 1, UT = false;
+  const setUnits = (u) => { UT = u === 'тс'; KF = UT ? 0.1 : 1; };
+  const nF = (v, d) => n(isNum(v) ? v * KF : v, isNum(d) && UT ? d + 1 : d);
+  const sgF = (v, d) => (v < 0 ? `(${nF(v, d)})` : nF(v, d));
+  const nR = (v, d) => n(isNum(v) ? v * KF : v, UT ? d + 1 : d);
 
   // ---------- Разметка ----------
   const F = (s) => `<span class="xf">${math(s)}</span>`;                 // формула в строке текста
@@ -23285,8 +23307,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     const p = r.input, g = p.gammaB1;
     const RbtT = r.Rbt / g, RbT = r.Rb / g;
     return {
-      Rbt: eq('R_{bt} = R_{bt,табл}·γ_{b1}', `${n(RbtT, 3)}·${n(g, 2)}`, `${n(r.Rbt, 3)} МПа = ${n(r.Rbt / 10, 4)} кН/см^{2}`, 'СП 63 табл. 6.8, п. 6.1.12'),
-      Rb: eq('R_{b} = R_{b,табл}·γ_{b1}', `${n(RbT, 1)}·${n(g, 2)}`, `${n(r.Rb, 2)} МПа = ${n(r.Rb / 10, 3)} кН/см^{2}`, 'СП 63 табл. 6.8, п. 6.1.12'),
+      Rbt: eq('R_{bt} = R_{bt,табл}·γ_{b1}', `${n(RbtT, 3)}·${n(g, 2)}`, `${n(r.Rbt, 3)} МПа = ${nR(r.Rbt / 10, 4)} кН/см^{2}`, 'СП 63 табл. 6.8, п. 6.1.12'),
+      Rb: eq('R_{b} = R_{b,табл}·γ_{b1}', `${n(RbT, 1)}·${n(g, 2)}`, `${n(r.Rb, 2)} МПа = ${nR(r.Rb / 10, 3)} кН/см^{2}`, 'СП 63 табл. 6.8, п. 6.1.12'),
       gText: math(`γ_{b1} = ${n(g, 2)} — ${g < 1 ? 'длительное действие нагрузки' : 'кратковременное действие нагрузки'} (СП 63 п. 6.1.12)`),
     };
   }
@@ -23358,7 +23380,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     const list = [];
     // 1. Что проверяем
     list.push(step('Что проверяем',
-      P(`Свая передаёт на ростверк снизу сосредоточенную силу ${F(`F = F_{1} = ${n(p.F1)} кН`)}. Ростверк может разрушиться, если бетон «срежется» по поверхности пирамиды, расходящейся от граней сваи вверх. По СП 63 п. 8.1.46 это проверяют по <b>расчётному контуру</b> — линии на расстоянии ${F('0,5·h_{0}')} от граней сваи: касательные усилия по сечению «контур × h₀» должен воспринять бетон (${F('R_{bt}')}).`),
+      P(`Свая передаёт на ростверк снизу сосредоточенную силу ${F(`F = F_{1} = ${nF(p.F1)} кН`)}. Ростверк может разрушиться, если бетон «срежется» по поверхности пирамиды, расходящейся от граней сваи вверх. По СП 63 п. 8.1.46 это проверяют по <b>расчётному контуру</b> — линии на расстоянии ${F('0,5·h_{0}')} от граней сваи: касательные усилия по сечению «контур × h₀» должен воспринять бетон (${F('R_{bt}')}).`),
       P(`Условие прочности — ф. (8.95) п. 8.1.49: сила и моменты, приходящиеся на контур, делятся на то, что бетон может воспринять. Сумма — коэффициент использования ${F('K')}, должно быть ${F('K ≤ 1')}.`)));
     // 2. Исходные величины
     const dShift = s > 0 ? '+' : '−';
@@ -23371,7 +23393,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       P(`Центр сваи с учётом допуска на смещение (${esc(sp.shiftText || shiftWord(s))}, ${F(`ΔX = ${n(r.dX)}, ΔY = ${n(r.dY)} мм`)}, СП 24 п. 8.3):`),
       eq('x_{c} = x_{св} ' + dShift + ' ΔX', `${n(p.xPile)} ${dShift} ${n(r.dX)}`, `${n(xc)} мм`),
       eq('y_{c} = y_{св} ' + dShift + ' ΔY', `${n(p.yPile)} ${dShift} ${n(r.dY)}`, `${n(yc)} мм`),
-      P(`Моменты в голове сваи: ${F(`M_{св,X} = ${n(p.MXpile)}`)}, ${F(`M_{св,Y} = ${n(p.MYpile)} кН·м`)}; при продавливании учитывается их доля ${F(`k_{M} = ${n(p.kM, 2)}`)} (п. 8.1.46: половина момента — на продавливание, половина — на изгиб).`)));
+      P(`Моменты в голове сваи: ${F(`M_{св,X} = ${nF(p.MXpile)}`)}, ${F(`M_{св,Y} = ${nF(p.MYpile)} кН·м`)}; при продавливании учитывается их доля ${F(`k_{M} = ${n(p.kM, 2)}`)} (п. 8.1.46: половина момента — на продавливание, половина — на изгиб).`)));
     // 3. Варианты контура
     const near = h0 + bp / 2;
     const reason = (q) => {
@@ -23419,8 +23441,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     // 5. Предельная сила
     const RbtCm = r.Rbt / 10;
     list.push(step('Сила, которую воспринимает бетон по контуру',
-      eq('F_{b,ult} = R_{bt}·A_{b} = R_{bt}·u·h_{0}', `${n(RbtCm, 4)}·${n(v.u, 1)}·${n(h0 / 10)}`, `${n(v.Fb, 1)} кН`, 'ф. (8.88), (8.89)'),
-      eq('F/F_{b,ult}', `${n(p.F1)}/${n(v.Fb, 1)}`, k3(v.FFb))));
+      eq('F_{b,ult} = R_{bt}·A_{b} = R_{bt}·u·h_{0}', `${nR(RbtCm, 4)}·${n(v.u, 1)}·${n(h0 / 10)}`, `${nF(v.Fb, 1)} кН`, 'ф. (8.88), (8.89)'),
+      eq('F/F_{b,ult}', `${nF(p.F1)}/${nF(v.Fb, 1)}`, k3(v.FFb))));
     // 6. Моменты
     const mxv = v.WX > 0 ? v.IX / v.WX : 0, myv = v.WY > 0 ? v.IY / v.WY : 0;
     const MXp = p.kM * p.MXpile, MYp = p.kM * p.MYpile;
@@ -23428,20 +23450,20 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       P(`Момент сопротивления контура — по п. 8.1.51: момент инерции линий контура относительно осей через его центр тяжести, делённый на наибольшее расстояние до контура.`),
       eq('W_{bX} = I_{bX}/x_{max}', `${n(v.IX, 0)}/${n(mxv, 2)}`, `${n(v.WX, 1)} см^{2}`, 'ф. (8.98)'),
       eq('W_{bY} = I_{bY}/y_{max}', `${n(v.IY, 0)}/${n(myv, 2)}`, `${n(v.WY, 1)} см^{2}`, 'ф. (8.98)'),
-      eq('M_{bX,ult} = R_{bt}·W_{bX}·h_{0}', `${n(RbtCm, 4)}·${n(v.WX, 1)}·${n(h0 / 10)}·10^{−2}`, `${n(v.MbX, 1)} кН·м`, 'ф. (8.94)'),
-      eq('M_{bY,ult} = R_{bt}·W_{bY}·h_{0}', `${n(RbtCm, 4)}·${n(v.WY, 1)}·${n(h0 / 10)}·10^{−2}`, `${n(v.MbY, 1)} кН·м`, 'ф. (8.94)'),
+      eq('M_{bX,ult} = R_{bt}·W_{bX}·h_{0}', `${nR(RbtCm, 4)}·${n(v.WX, 1)}·${n(h0 / 10)}·10^{−2}`, `${nF(v.MbX, 1)} кН·м`, 'ф. (8.94)'),
+      eq('M_{bY,ult} = R_{bt}·W_{bY}·h_{0}', `${nR(RbtCm, 4)}·${n(v.WY, 1)}·${n(h0 / 10)}·10^{−2}`, `${nF(v.MbY, 1)} кН·м`, 'ф. (8.94)'),
       P(useFe0
         ? `Расчётные моменты: доля момента в голове сваи плюс момент от внецентренного приложения силы ${F('F·e_{0}')} (п. 8.1.46):`
         : `Расчётные моменты: только доля момента в голове сваи — момент ${F('F·e_{0}')} отключён в исходных данных (поле «Учитывать момент F·e0»).`),
-      eq(`M_{X} = k_{M}·M_{св,X}${useFe0 ? ' + F·e_{0X}' : ''}`, `${n(p.kM, 2)}·${sg(p.MXpile)}${useFe0 ? ` + ${n(p.F1)}·${sg(v.e0X, 2)}·10^{−2}` : ''}`, `${n(v.MX, 1)} кН·м`),
-      eq(`M_{Y} = k_{M}·M_{св,Y}${useFe0 ? ' + F·e_{0Y}' : ''}`, `${n(p.kM, 2)}·${sg(p.MYpile)}${useFe0 ? ` + ${n(p.F1)}·${sg(v.e0Y, 2)}·10^{−2}` : ''}`, `${n(v.MY, 1)} кН·м`),
+      eq(`M_{X} = k_{M}·M_{св,X}${useFe0 ? ' + F·e_{0X}' : ''}`, `${n(p.kM, 2)}·${sgF(p.MXpile)}${useFe0 ? ` + ${nF(p.F1)}·${sg(v.e0X, 2)}·10^{−2}` : ''}`, `${nF(v.MX, 1)} кН·м`),
+      eq(`M_{Y} = k_{M}·M_{св,Y}${useFe0 ? ' + F·e_{0Y}' : ''}`, `${n(p.kM, 2)}·${sgF(p.MYpile)}${useFe0 ? ` + ${nF(p.F1)}·${sg(v.e0Y, 2)}·10^{−2}` : ''}`, `${nF(v.MY, 1)} кН·м`),
       MXp === 0 && MYp === 0 && !useFe0 ? note('Моментов нет — проверяется только сила.') : ''));
     // 7. Условие прочности
     const mxr = v.MbX > 0 ? Math.abs(v.MX) / v.MbX : (Math.abs(v.MX) > 0 ? Infinity : 0);
     const myr = v.MbY > 0 ? Math.abs(v.MY) / v.MbY : (Math.abs(v.MY) > 0 ? Infinity : 0);
     const mSum = mxr + myr, lim = p.kLim * v.FFb, capped = mSum > lim + 1e-9;
     list.push(step('Проверка прочности (бетон)',
-      eq('(|M_{X}|)/(M_{bX,ult}) + (|M_{Y}|)/(M_{bY,ult})', `${n(Math.abs(v.MX), 1)}/${n(v.MbX, 1)} + ${n(Math.abs(v.MY), 1)}/${n(v.MbY, 1)}`, n(mSum, 3)),
+      eq('(|M_{X}|)/(M_{bX,ult}) + (|M_{Y}|)/(M_{bY,ult})', `${nF(Math.abs(v.MX), 1)}/${nF(v.MbX, 1)} + ${nF(Math.abs(v.MY), 1)}/${nF(v.MbY, 1)}`, n(mSum, 3)),
       P(`Моментный член принимают не более ${F(`${n(p.kLim, 2)}·F/F_{b,ult} = ${n(p.kLim, 2)}·${k3(v.FFb)} = ${n(lim, 3)}`)} (п. 8.1.49, условие после ф. (8.95)) — ${capped ? `<b>ограничение действует</b>, принимаем ${n(lim, 3)}` : 'ограничение не действует'}.`),
       eq('K = F/F_{b,ult} + (моментный член)', `${k3(v.FFb)} + ${n(v.mTerm, 3)}`, k3(v.Kb), 'ф. (8.95)'),
       `<p>${kLine('K', v.Kb)} ${v.Kb <= 1 ? '≤ 1 — прочность бетона по этому контуру обеспечена.' : '> 1 — прочности бетона недостаточно' + (useSw ? ', учитывается поперечная арматура (ниже).' : '.')}</p>`));
@@ -23450,12 +23472,12 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       const swOk = v.Fsw >= 0.25 * v.Fb;
       list.push(step('Поперечная арматура (пп. 8.1.48, 8.1.50)',
         P(`${esc(p.swClass)} Ø${n(p.dsw)} мм, шаг вдоль контура ${F(`s_{w} = ${n(p.sw)} мм`)}, рядов в полосе ±0,5·h₀ — ${n(p.nr)}.`),
-        eq('q_{sw} = (R_{sw}·A_{sw})/(s_{w})', `(${n(r.Rsw / 10, 1)}·${n(p.nr)}·π·${n(p.dsw / 10, 2)}^{2}/4)/${n(p.sw / 10, 1)}`, `${n(v.qsw, 3)} кН/см`, 'ф. (8.92)'),
-        eq('F_{sw,ult} = 0,8·q_{sw}·u', `0,8·${n(v.qsw, 3)}·${n(v.u, 1)}`, `${n(v.Fsw, 1)} кН`, 'ф. (8.91)'),
-        P(`Арматура учитывается при ${F('F_{sw,ult} ≥ 0,25·F_{b,ult}')} = ${n(0.25 * v.Fb, 1)} кН — ${swOk ? 'выполняется' : '<b>не выполняется</b>, арматура в расчёте не учитывается'}; ${F('F_{b,ult} + F_{sw,ult} ≤ 2·F_{b,ult}')}.`),
-        eq('F_{ult}', '', `${n(v.Fult, 1)} кН`),
-        eq('M_{X,ult} = M_{bX,ult} + 0,8·q_{sw}·W_{bX} ≤ 2·M_{bX,ult}', '', `${n(v.MXult, 1)} кН·м`, 'ф. (8.97)'),
-        eq('M_{Y,ult}', '', `${n(v.MYult, 1)} кН·м`),
+        eq('q_{sw} = (R_{sw}·A_{sw})/(s_{w})', `(${nR(r.Rsw / 10, 1)}·${n(p.nr)}·π·${n(p.dsw / 10, 2)}^{2}/4)/${n(p.sw / 10, 1)}`, `${nF(v.qsw, 3)} кН/см`, 'ф. (8.92)'),
+        eq('F_{sw,ult} = 0,8·q_{sw}·u', `0,8·${nF(v.qsw, 3)}·${n(v.u, 1)}`, `${nF(v.Fsw, 1)} кН`, 'ф. (8.91)'),
+        P(`Арматура учитывается при ${F('F_{sw,ult} ≥ 0,25·F_{b,ult}')} = ${nF(0.25 * v.Fb, 1)} кН — ${swOk ? 'выполняется' : '<b>не выполняется</b>, арматура в расчёте не учитывается'}; ${F('F_{b,ult} + F_{sw,ult} ≤ 2·F_{b,ult}')}.`),
+        eq('F_{ult}', '', `${nF(v.Fult, 1)} кН`),
+        eq('M_{X,ult} = M_{bX,ult} + 0,8·q_{sw}·W_{bX} ≤ 2·M_{bX,ult}', '', `${nF(v.MXult, 1)} кН·м`, 'ф. (8.97)'),
+        eq('M_{Y,ult}', '', `${nF(v.MYult, 1)} кН·м`),
         eq('K_{sw} = F/F_{ult} + min(|M_{X}|/M_{X,ult} + |M_{Y}|/M_{Y,ult}; k·F/F_{ult})', '', k3(v.Ksw), 'ф. (8.96)'),
         isNum(sp.KbOut) ? P(`За границей зоны армирования (контур на ${F(`z_{w} + 0,5·h_{0}`)} от граней сваи, п. 8.1.48) — бетон: ${kLine('K', sp.KbOut)}.`) : ''));
     }
@@ -23469,7 +23491,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     // Сводка всех вариантов
     out.push(more('Все варианты контура — таблица', tbl(['Контур', 'Действует', 'u, см', 'e_{0X} / e_{0Y}, см', 'F_{b,ult}, кН', 'M_{X} / M_{Y}, кН·м', 'K'],
       sp.variants.map((q) => [esc(q.name), q.active ? 'да' : q.off === 'far' ? 'нет — свая не у края' : q.off === 'edge' ? 'нет — за краем' : 'нет',
-        n(q.u, 1), `${n(q.e0X, 1)} / ${n(q.e0Y, 1)}`, n(q.Fb, 1), `${n(q.MX, 1)} / ${n(q.MY, 1)}`, q.active ? `<b>${k3(q.Kb)}</b>` : '—']), sp.governingIndex)));
+        n(q.u, 1), `${n(q.e0X, 1)} / ${n(q.e0Y, 1)}`, nF(q.Fb, 1), `${nF(q.MX, 1)} / ${nF(q.MY, 1)}`, q.active ? `<b>${k3(q.Kb)}</b>` : '—']), sp.governingIndex)));
     return out.join('');
   }
 
@@ -23496,10 +23518,10 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         !isStep ? P(`Коэффициент ${F(`α = ${n(r.alpha, 3)}`)}${r.stakan ? ' — стакан, ф. (2), (3)' : ''}.`) : ''));
       list.push(step('Несущая способность и проверка',
         eq('F_{ult} = 2·R_{bt}·[(h_{0}/c_{1})·(b_{col} + c_{2})·h_{0} + (h_{col} + c_{1})·(b − b_{col})]/α',
-          `2·${n(r.Rbt / 10, 4)}·[(${n(h0c)}/${n(t.c1, 1)})·(${n(t.bcolP, 1)} + ${n(t.c2, 1)})·${n(h0c)} + (${n(t.hcolP, 1)} + ${n(t.c1, 1)})·(${n(t.bP, 1)} − ${n(t.bcolP, 1)})]/${n(isStep ? 1 : r.alpha, 3)}`,
-          `${n(t.Fult, 1)} кН`, 'Пособие ф. (8)'),
-        eq('F_{per} = 2·F_{max}', '', `${n(t.Fper, 1)} кН`, 'Пособие п. 2.7'),
-        eq('K = F_{per}/F_{ult}', `${n(t.Fper, 1)}/${n(t.Fult, 1)}`, k3(t.K))));
+          `2·${nR(r.Rbt / 10, 4)}·[(${n(h0c)}/${n(t.c1, 1)})·(${n(t.bcolP, 1)} + ${n(t.c2, 1)})·${n(h0c)} + (${n(t.hcolP, 1)} + ${n(t.c1, 1)})·(${n(t.bP, 1)} − ${n(t.bcolP, 1)})]/${n(isStep ? 1 : r.alpha, 3)}`,
+          `${nF(t.Fult, 1)} кН`, 'Пособие ф. (8)'),
+        eq('F_{per} = 2·F_{max}', '', `${nF(t.Fper, 1)} кН`, 'Пособие п. 2.7'),
+        eq('K = F_{per}/F_{ult}', `${nF(t.Fper, 1)}/${nF(t.Fult, 1)}`, k3(t.K))));
       out.push(steps(list));
       return out.join('');
     }
@@ -23513,7 +23535,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       eq(isStep ? 'h_{0} = h − a' : (r.step ? 'h_{0} = H − a' : 'h_{0} = h − a'), isStep ? `${n(p.h)} − ${n(p.a)}` : `${n(r.step ? r.Htot : p.h)} − ${n(p.a)}`, `${n(h0)} мм = ${n(h0c)} см`, 'рабочая высота'),
       mat.Rbt,
       !isStep ? (r.stakan
-        ? eq('α = 1 − 0,4·R_{bt}·A_{f}/N ≥ 0,85', `1 − 0,4·${n(r.Rbt, 3)}·${n(r.Af / 1e6, 4)}·10^{3}/${n(p.N)}`, n(r.alpha, 3), 'Пособие ф. (2), (3) — часть силы передаётся стенкам стакана')
+        ? eq('α = 1 − 0,4·R_{bt}·A_{f}/N ≥ 0,85', `1 − 0,4·${n(r.Rbt, 3)}·${n(r.Af / 1e6, 4)}·10^{${UT ? 2 : 3}}/${nF(p.N)}`, n(r.alpha, 3), 'Пособие ф. (2), (3) — часть силы передаётся стенкам стакана')
         : P(`${F(`α = ${n(r.alpha, 3)}`)} — ${n(r.alpha, 3) === '1' ? 'монолитная, стальная колонна или колонна на болтах: сила передаётся полностью' : 'задано'} (Пособие ф. (1)).`))
         : P(`${F('α = 1')} — ступень монолитна с плитой.`),
       P(`Расстояния от граней ${sup} до внутренних граней ближайших свай (мм): ${F(`c_{+X} = ${n(cs.pX, 0)}`)}, ${F(`c_{−X} = ${n(cs.mX, 0)}`)}, ${F(`c_{+Y} = ${n(cs.pY, 0)}`)}, ${F(`c_{−Y} = ${n(cs.mY, 0)}`)}. Если за гранью свай нет, принимается ${F('c = h_{0}')} (45°).`),
@@ -23526,7 +23548,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     list.push(step('Варианты пирамиды',
       P(`Рассматриваются пирамиды до ближайшего ряда свай и${multiAny ? ' (если за гранью несколько рядов)' : ''} с гранями под 45° (${F('c = h_{0}')}) — в разных сочетаниях по X и Y; принимается наибольший K. Расчётное ${F('c')} ограничено: ${F('0,4·h_{0} ≤ c ≤ h_{0}')} = ${n(0.4 * h0c, 1)}…${n(h0c, 1)} см (п. 2.2).`),
       tbl(['Вариант', 'c_{+X} / c_{−X} / c_{+Y} / c_{−Y}, см', 'Свай вне основания', 'F_{ult}, кН', 'F_{per}, кН', 'K'],
-        C.variants.map((q) => [esc(q.name), [q.cr.pX, q.cr.mX, q.cr.pY, q.cr.mY].map((c) => n(c, 1)).join(' / '), n(q.n1), n(q.Fult, 1), n(q.Fper, 1), `<b>${k3(q.K)}</b>`]),
+        C.variants.map((q) => [esc(q.name), [q.cr.pX, q.cr.mX, q.cr.pY, q.cr.mY].map((c) => n(c, 1)).join(' / '), n(q.n1), nF(q.Fult, 1), nF(q.Fper, 1), `<b>${k3(q.K)}</b>`]),
         C.variants.indexOf(v))));
     const bxc = C.bx / 10, byc = C.by / 10, cr = v.cr;
     list.push(step(`Несущая способность — вариант «${esc(v.name)}»`,
@@ -23534,12 +23556,12 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       eq('u_{±X} = b_{y} + (c_{+Y} + c_{−Y})/2', `${n(byc, 1)} + (${n(cr.pY, 1)} + ${n(cr.mY, 1)})/2`, `${n(v.uX, 1)} см`),
       eq('u_{±Y} = b_{x} + (c_{+X} + c_{−X})/2', `${n(bxc, 1)} + (${n(cr.pX, 1)} + ${n(cr.mX, 1)})/2`, `${n(v.uY, 1)} см`),
       eq('∑(h_{0}/c_{i})·u_{i}', `(${n(h0c)}/${n(cr.pX, 1)} + ${n(h0c)}/${n(cr.mX, 1)})·${n(v.uX, 1)} + (${n(h0c)}/${n(cr.pY, 1)} + ${n(h0c)}/${n(cr.mY, 1)})·${n(v.uY, 1)}`, `${n(v.sum, 1)} см`),
-      eq('F_{ult} = (R_{bt}·h_{0}/α)·∑(h_{0}/c_{i})·u_{i}', `(${n(r.Rbt / 10, 4)}·${n(h0c)}/${n(C.alpha, 3)})·${n(v.sum, 1)}`, `${n(v.Fult, 1)} кН`, 'Пособие ф. (1)')));
+      eq('F_{ult} = (R_{bt}·h_{0}/α)·∑(h_{0}/c_{i})·u_{i}', `(${nR(r.Rbt / 10, 4)}·${n(h0c)}/${n(C.alpha, 3)})·${n(v.sum, 1)}`, `${nF(v.Fult, 1)} кН`, 'Пособие ф. (1)')));
     const SF = v.SF;
     list.push(step('Продавливающая сила и проверка',
-      P(`Свай за пределами нижнего основания пирамиды: ${n(v.n1)}. Суммы их реакций по сторонам (свая на оси ${sup} делится пополам): ${F(`∑F_{+X} = ${n(SF.pX, 1)}`)}, ${F(`∑F_{−X} = ${n(SF.mX, 1)}`)}, ${F(`∑F_{+Y} = ${n(SF.pY, 1)}`)}, ${F(`∑F_{−Y} = ${n(SF.mY, 1)} кН`)}.`),
-      eq('F_{per} = 2·max(∑F)', `2·${n(Math.max(SF.pX, SF.mX, SF.pY, SF.mY), 1)}`, `${n(v.Fper, 1)} кН`, 'Пособие п. 2.3'),
-      eq('K = F_{per}/F_{ult}', `${n(v.Fper, 1)}/${n(v.Fult, 1)}`, k3(v.K)),
+      P(`Свай за пределами нижнего основания пирамиды: ${n(v.n1)}. Суммы их реакций по сторонам (свая на оси ${sup} делится пополам): ${F(`∑F_{+X} = ${nF(SF.pX, 1)}`)}, ${F(`∑F_{−X} = ${nF(SF.mX, 1)}`)}, ${F(`∑F_{+Y} = ${nF(SF.pY, 1)}`)}, ${F(`∑F_{−Y} = ${nF(SF.mY, 1)} кН`)}.`),
+      eq('F_{per} = 2·max(∑F)', `2·${nF(Math.max(SF.pX, SF.mX, SF.pY, SF.mY), 1)}`, `${nF(v.Fper, 1)} кН`, 'Пособие п. 2.3'),
+      eq('K = F_{per}/F_{ult}', `${nF(v.Fper, 1)}/${nF(v.Fult, 1)}`, k3(v.K)),
       v.n1 === 0 ? note(`Все сваи в пределах основания пирамиды — продавливающей силы нет, нагрузка передаётся на сваи непосредственно.`) : ''));
     out.push(steps(list));
     return out.join('');
@@ -23562,14 +23584,14 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       mat.Rbt,
       eq('L_{x} × L_{y} = (b_{x} + h_{0}) × (b_{y} + h_{0})', `(${n(bx, 1)} + ${n(h0c)}) × (${n(by, 1)} + ${n(h0c)})`, `${n(cc.Lx, 1)} × ${n(cc.Ly, 1)} см`),
       eq('u = 2·(L_{x} + L_{y})', '', `${n(cc.u, 1)} см`, 'п. 8.1.47'),
-      eq('F_{b,ult} = R_{bt}·u·h_{0}', `${n(r.Rbt / 10, 4)}·${n(cc.u, 1)}·${n(h0c)}`, `${n(cc.Fb, 1)} кН`, 'ф. (8.88), (8.89)'),
+      eq('F_{b,ult} = R_{bt}·u·h_{0}', `${nR(r.Rbt / 10, 4)}·${n(cc.u, 1)}·${n(h0c)}`, `${nF(cc.Fb, 1)} кН`, 'ф. (8.88), (8.89)'),
       cc.inSlab ? '' : note('Контур выходит за край ростверка — расчёт по замкнутому контуру приближённый.')));
     const baseX = cc.bx + 2 * cc.h0, baseY = cc.by + 2 * cc.h0;
     list.push(step('Продавливающая сила',
-      P(`Основание пирамиды ${n(baseX, 0)} × ${n(baseY, 0)} мм (по центру ${sup}). Свай вне основания: ${n(cc.nOut)}; сумма их реакций ${F(`F = ${n(cc.F, 1)} кН`)}.`),
+      P(`Основание пирамиды ${n(baseX, 0)} × ${n(baseY, 0)} мм (по центру ${sup}). Свай вне основания: ${n(cc.nOut)}; сумма их реакций ${F(`F = ${nF(cc.F, 1)} кН`)}.`),
       cc.F === 0 ? note(`<b>Почему F = 0.</b> Все сваи стоят в пределах основания пирамиды продавливания — нагрузка ${isStep ? 'ступени' : 'колонны'} передаётся на сваи непосредственно сжатыми «подкосами» бетона, а не через срез по контуру. Модель плиты СП 63 в этом случае продавливания не даёт; для толстых ростверков с близко расположенными сваями определяющей является проверка по Пособию (блок выше), которая учитывает такие пирамиды через ограничение ${F('c ≥ 0,4·h_{0}')}.`) : ''));
     list.push(step('Моменты и проверка',
-      P(`Моменты в колонне учитываются наполовину (п. 8.1.46): ${F(`M_{X} = ${n(p.kM, 2)}·|M_{x}| = ${n(cc.MX, 1)}`)}, ${F(`M_{Y} = ${n(cc.MY, 1)} кН·м`)}. Предельные моменты по ф. (8.94): ${F(`M_{bX,ult} = ${n(cc.MbX, 1)}`)}, ${F(`M_{bY,ult} = ${n(cc.MbY, 1)} кН·м`)}.`),
+      P(`Моменты в колонне учитываются наполовину (п. 8.1.46): ${F(`M_{X} = ${n(p.kM, 2)}·|M_{x}| = ${nF(cc.MX, 1)}`)}, ${F(`M_{Y} = ${nF(cc.MY, 1)} кН·м`)}. Предельные моменты по ф. (8.94): ${F(`M_{bX,ult} = ${nF(cc.MbX, 1)}`)}, ${F(`M_{bY,ult} = ${nF(cc.MbY, 1)} кН·м`)}.`),
       eq('K = F/F_{b,ult} + min(M_{X}/M_{bX,ult} + M_{Y}/M_{bY,ult}; k·F/F_{b,ult})', `${n(cc.FFb, 3)} + ${n(cc.mTerm, 3)}`, k3(cc.K), 'ф. (8.95)')));
     out.push(steps(list));
     return out.join('');
@@ -23607,9 +23629,9 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       eq('h_{01}/c_{02}', `${n(h01)}/${n(k.c02, 0)}`, `${n(k.ratio2, 3)} → β_{2} = ${n(k.beta2, 3)}`)));
     list.push(step('Несущая способность и проверка',
       eq('F_{ult} = R_{bt}·h_{01}·[β_{1}·(b_{02} + c_{02}/2) + β_{2}·(b_{01} + c_{01}/2)]',
-        `${n(r.Rbt / 10, 4)}·${n(h01 / 10)}·[${n(k.beta1, 3)}·(${n(k.b02 / 10, 1)} + ${n(k.c02 / 10, 1)}/2) + ${n(k.beta2, 3)}·(${n(k.b01 / 10, 1)} + ${n(k.c01 / 10, 1)}/2)]`,
-        `${n(k.Fult, 1)} кН`, 'Пособие ф. (14), размеры в см'),
-      eq('K = F_{1}/F_{ult}', `${n(k.Fper)}/${n(k.Fult, 1)}`, k3(k.K)),
+        `${nR(r.Rbt / 10, 4)}·${n(h01 / 10)}·[${n(k.beta1, 3)}·(${n(k.b02 / 10, 1)} + ${n(k.c02 / 10, 1)}/2) + ${n(k.beta2, 3)}·(${n(k.b01 / 10, 1)} + ${n(k.c01 / 10, 1)}/2)]`,
+        `${nF(k.Fult, 1)} кН`, 'Пособие ф. (14), размеры в см'),
+      eq('K = F_{1}/F_{ult}', `${nF(k.Fper)}/${nF(k.Fult, 1)}`, k3(k.K)),
       r.shiftBoth ? P(`Рассчитаны оба направления допуска: внутрь — ${kLine('K', r.shiftBoth.cornerIn)}, к краям — ${kLine('K', r.shiftBoth.cornerOut)}; принят худший.`) : ''));
     out.push(steps(list));
     return out.join('');
@@ -23630,34 +23652,34 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       P(`Ростверк работает как консоль, нагруженная реакциями свай. В сечениях по граням ${r.step ? 'колонны и ступени' : 'колонны'} проверяются: прочность бетонной полосы между наклонными трещинами (п. 8.1.32), наклонное сечение на поперечную силу (п. 8.1.33), нормальное сечение на изгиб (п. 8.1.8 и далее) и наклонное сечение на момент — анкеровка нижней арматуры (п. 8.1.35).`),
       mat.Rb, mat.Rbt, note(mat.gText)));
     list.push(step(`Бетонная полоса — сечение «${esc(gS.name)}»`,
-      P(`Поперечная сила — сумма реакций свай за гранью: ${F(`Q = ${n(gS.Q, 1)} кН`)}; ширина ${F(`b = ${n(gS.bw, 1)} см`)}, ${F(`h_{0} = ${n(gS.h0)} см`)}.`),
-      eq('Q_{ult} = φ_{b1}·R_{b}·b·h_{0}, φ_{b1} = 0,3', `0,3·${n(r.Rb / 10, 3)}·${n(gS.bw, 1)}·${n(gS.h0)}`, `${n(gS.Qstrip, 1)} кН`, 'ф. (8.55)'),
-      eq('K = Q/Q_{ult}', `${n(gS.Q, 1)}/${n(gS.Qstrip, 1)}`, k3(gS.Kstrip))));
+      P(`Поперечная сила — сумма реакций свай за гранью: ${F(`Q = ${nF(gS.Q, 1)} кН`)}; ширина ${F(`b = ${n(gS.bw, 1)} см`)}, ${F(`h_{0} = ${n(gS.h0)} см`)}.`),
+      eq('Q_{ult} = φ_{b1}·R_{b}·b·h_{0}, φ_{b1} = 0,3', `0,3·${nR(r.Rb / 10, 3)}·${n(gS.bw, 1)}·${n(gS.h0)}`, `${nF(gS.Qstrip, 1)} кН`, 'ф. (8.55)'),
+      eq('K = Q/Q_{ult}', `${nF(gS.Q, 1)}/${nF(gS.Qstrip, 1)}`, k3(gS.Kstrip))));
     const sr = gQ.shearGov;
     list.push(step(`Наклонное сечение (поперечная сила) — сечение «${esc(gQ.name)}»`,
-      P(`Наклонное сечение идёт от грани до внутренней грани ряда свай; проверяется у каждого ряда за гранью (Пособие п. 2.11) — определяет ряд с ${F(`c = ${n(sr.c / 10, 1)} см`)}, за ним реакции ${F(`Q = ${n(sr.Q, 1)} кН`)}.`),
-      eq('Q_{b} = φ_{b2}·R_{bt}·b·h_{0}^{2}/C, φ_{b2} = 1,5', `1,5·${n(r.Rbt / 10, 4)}·${n(gQ.bw, 1)}·${n(gQ.h0)}^{2}/${n(Math.max(sr.c / 10, 0.1), 1)}`, '', 'ф. (8.57)'),
-      P(`с ограничениями ${F('0,5·R_{bt}·b·h_{0} ≤ Q_{b} ≤ 2,5·R_{bt}·b·h_{0}')} = ${n(0.5 * r.Rbt / 10 * gQ.bw * gQ.h0, 1)}…${n(2.5 * r.Rbt / 10 * gQ.bw * gQ.h0, 1)} кН → ${F(`Q_{b} = ${n(sr.Qb, 1)} кН`)}.`),
-      eq('K = Q/Q_{b}', `${n(sr.Q, 1)}/${n(sr.Qb, 1)}`, k3(gQ.KQb))));
+      P(`Наклонное сечение идёт от грани до внутренней грани ряда свай; проверяется у каждого ряда за гранью (Пособие п. 2.11) — определяет ряд с ${F(`c = ${n(sr.c / 10, 1)} см`)}, за ним реакции ${F(`Q = ${nF(sr.Q, 1)} кН`)}.`),
+      eq('Q_{b} = φ_{b2}·R_{bt}·b·h_{0}^{2}/C, φ_{b2} = 1,5', `1,5·${nR(r.Rbt / 10, 4)}·${n(gQ.bw, 1)}·${n(gQ.h0)}^{2}/${n(Math.max(sr.c / 10, 0.1), 1)}`, '', 'ф. (8.57)'),
+      P(`с ограничениями ${F('0,5·R_{bt}·b·h_{0} ≤ Q_{b} ≤ 2,5·R_{bt}·b·h_{0}')} = ${nF(0.5 * r.Rbt / 10 * gQ.bw * gQ.h0, 1)}…${nF(2.5 * r.Rbt / 10 * gQ.bw * gQ.h0, 1)} кН → ${F(`Q_{b} = ${nF(sr.Qb, 1)} кН`)}.`),
+      eq('K = Q/Q_{b}', `${nF(sr.Q, 1)}/${nF(sr.Qb, 1)}`, k3(gQ.KQb))));
     list.push(step(`Изгиб — сечение «${esc(gM.name)}»`,
-      P(`Момент от реакций свай за гранью с учётом смещения свай ${F(`e_{0} = ${n(p.e0)} мм`)}: ${F('M = ∑F_{i}·(x_{i} + e_{0})')} = ${F(`${n(gM.M, 1)} кН·м`)}. Арматура, пересекающая сечение: ${F(`A_{s} = ${n(gM.As, 2)} см^{2}`)}.`),
-      eq('x = R_{s}·A_{s}/(R_{b}·b)', `${n(r.Rs / 10, 1)}·${n(gM.As, 2)}/(${n(r.Rb / 10, 3)}·${n(gM.bwC, 1)})`, `${n(gM.x, 2)} см`),
+      P(`Момент от реакций свай за гранью с учётом смещения свай ${F(`e_{0} = ${n(p.e0)} мм`)}: ${F('M = ∑F_{i}·(x_{i} + e_{0})')} = ${F(`${nF(gM.M, 1)} кН·м`)}. Арматура, пересекающая сечение: ${F(`A_{s} = ${n(gM.As, 2)} см^{2}`)}.`),
+      eq('x = R_{s}·A_{s}/(R_{b}·b)', `${nR(r.Rs / 10, 1)}·${n(gM.As, 2)}/(${nR(r.Rb / 10, 3)}·${n(gM.bwC, 1)})`, `${n(gM.x, 2)} см`),
       P(`${F(`ξ = x/h_{0} = ${n(gM.xi, 3)}`)} ${gM.xi <= r.xiR ? '≤' : '>'} ${F(`ξ_{R} = ${n(r.xiR, 3)}`)}${gM.xi <= r.xiR ? '' : ' — сжатая зона переармирована, x принимается равной ξ_{R}·h_{0}'}.`),
       gM.xi <= r.xiR
-        ? eq('M_{ult} = R_{s}·A_{s}·(h_{0} − 0,5·x)', `${n(r.Rs / 10, 1)}·${n(gM.As, 2)}·(${n(gM.h0)} − 0,5·${n(gM.x, 2)})·10^{−2}`, `${n(gM.Mult, 1)} кН·м`)
-        : eq('M_{ult} = R_{b}·b·ξ_{R}·h_{0}·(h_{0} − 0,5·ξ_{R}·h_{0})', '', `${n(gM.Mult, 1)} кН·м`),
-      eq('K = M/M_{ult}', `${n(gM.M, 1)}/${n(gM.Mult, 1)}`, k3(gM.Kbend))));
+        ? eq('M_{ult} = R_{s}·A_{s}·(h_{0} − 0,5·x)', `${nR(r.Rs / 10, 1)}·${n(gM.As, 2)}·(${n(gM.h0)} − 0,5·${n(gM.x, 2)})·10^{−2}`, `${nF(gM.Mult, 1)} кН·м`)
+        : eq('M_{ult} = R_{b}·b·ξ_{R}·h_{0}·(h_{0} − 0,5·ξ_{R}·h_{0})', '', `${nF(gM.Mult, 1)} кН·м`),
+      eq('K = M/M_{ult}', `${nF(gM.M, 1)}/${nF(gM.Mult, 1)}`, k3(gM.Kbend))));
     list.push(step(`Анкеровка нижней арматуры (наклонное сечение по моменту) — сечение «${esc(gA.name)}»`,
       P(`Наклонная трещина у грани ряда свай пересекает нижнюю арматуру близко к её концу; арматура может развить усилие только пропорционально длине заделки за трещиной (п. 8.1.35, 10.3.26).`),
       eq('l_{an} = (1 − δ)·R_{s}·d_{s}/(4·η_{1}·η_{2}·R_{bt})', (() => { const ds = /X/.test(gA.name) ? p.dsx : p.dsy; return `(1 − ${n(r.lanRed || 0, 2)})·${n(r.Rs)}·${n(ds)}/(4·${n(p.eta1, 2)}·${ds > 32 ? '0,9' : '1'}·${n(r.Rbt, 3)})`; })(), `${n(gA.lan, 0)} мм`, `ф. (10.1)–(10.3)${r.lanRed ? `, снижение δ = ${n(r.lanRed * 100, 0)} % по п. 10.3.25` : ''}`),
       P(`Фактическая заделка от внутренней грани ближайшего ряда свай до торца стержня ${F(`l_{s} = ${n(gA.ls, 0)} мм`)}.`),
-      eq('N_{s} = R_{s}·A_{s}·l_{s}/l_{an}', `${n(r.Rs / 10, 1)}·${n(gA.As, 2)}·${n(Math.min(1, Math.max(0, gA.ls / gA.lan)), 3)}`, `${n(gA.Ns, 1)} кН`, 'п. 10.3.26'),
-      eq('M_{s} = N_{s}·z_{s}, z_{s} = 0,9·h_{0}', `${n(gA.Ns, 1)}·0,9·${n(gA.h0)}·10^{−2}`, `${n(gA.Ms, 1)} кН·м`, 'ф. (8.64)'),
-      eq('K = M/M_{s}', `${n(gA.M, 1)}/${n(gA.Ms, 1)}`, k3(gA.KMs)),
+      eq('N_{s} = R_{s}·A_{s}·l_{s}/l_{an}', `${nR(r.Rs / 10, 1)}·${n(gA.As, 2)}·${n(Math.min(1, Math.max(0, gA.ls / gA.lan)), 3)}`, `${nF(gA.Ns, 1)} кН`, 'п. 10.3.26'),
+      eq('M_{s} = N_{s}·z_{s}, z_{s} = 0,9·h_{0}', `${nF(gA.Ns, 1)}·0,9·${n(gA.h0)}·10^{−2}`, `${nF(gA.Ms, 1)} кН·м`, 'ф. (8.64)'),
+      eq('K = M/M_{s}', `${nF(gA.M, 1)}/${nF(gA.Ms, 1)}`, k3(gA.KMs)),
       note('Сравнение с Пособием п. 2.15 — в блоке «Наклонное сечение по моменту: СП 63 и Пособие».')));
     out.push(steps(list));
     out.push(more('Все сечения — таблица', tbl(['Сечение', 'Q, кН', 'K полоса', 'K накл. сеч.', 'M, кН·м', 'K изгиб', 'K анкеровка'],
-      se.map((q) => [esc(q.name), n(q.Q, 1), k3(q.Kstrip), k3(q.KQb), n(q.M, 1), k3(q.Kbend), k3(q.KMs)]))));
+      se.map((q) => [esc(q.name), nF(q.Q, 1), k3(q.Kstrip), k3(q.KQb), nF(q.M, 1), k3(q.Kbend), k3(q.KMs)]))));
     return out.join('');
   }
 
@@ -23671,8 +23693,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       eq('A_{b,max} = (b_{x} + 2c_{x})·(b_{y} + 2c_{y})', `(${n(v.bx, 0)} + 2·${n(v.cx, 0)})·(${n(v.by, 0)} + 2·${n(v.cy, 0)})·10^{−2}`, `${n(v.Abmax / 100, 1)} см^{2}`, 'п. 8.1.44'),
       eq('φ_{b} = 0,8·√(A_{b,max}/A_{b,loc}), 1,0 ≤ φ_{b} ≤ 2,5', `0,8·√(${n(v.Abmax / 100, 1)}/${n(v.Abloc / 100, 1)})`, n(v.phi, 3), 'ф. (8.82)'),
       eq('R_{b,loc} = φ_{b}·R_{b}', '', `${n(v.Rbloc, 2)} МПа`, 'ф. (8.81)'),
-      eq('N_{ult} = ψ·R_{b,loc}·A_{b,loc}', `${n(v.psi, 2)}·${n(v.Rbloc / 10, 3)}·${n(v.Abloc / 100, 1)}`, `${n(v.Nult, 0)} кН`, `ф. (8.80); ψ = ${n(v.psi, 2)} — ${v.psi < 1 ? 'неравномерное' : 'равномерное'} распределение`),
-      eq('K = N/N_{ult}', `${n(v.N, 1)}/${n(v.Nult, 0)}`, k3(v.K)));
+      eq('N_{ult} = ψ·R_{b,loc}·A_{b,loc}', `${n(v.psi, 2)}·${nR(v.Rbloc / 10, 3)}·${n(v.Abloc / 100, 1)}`, `${nF(v.Nult, 0)} кН`, `ф. (8.80); ψ = ${n(v.psi, 2)} — ${v.psi < 1 ? 'неравномерное' : 'равномерное'} распределение`),
+      eq('K = N/N_{ult}', `${nF(v.N, 1)}/${nF(v.Nult, 0)}`, k3(v.K)));
   }
   function local(r) {
     const L = r.local, list = [];
@@ -23683,11 +23705,11 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     if (L.column) {
       const c = L.column;
       const what = { steel: 'Под опорной плитой базы стальной колонны (Пособие п. 2.21)', cup: 'У дна стакана под торцом колонны (Пособие п. 2.17; Пособие по фундаментам пп. 2.47, 2.48)', bolt: 'Под торцом колонны на анкерных болтах (Пособие п. 2.17)' }[c.kind];
-      list.push(localOne(c, what, `${c.kind === 'cup' ? `Сила ${F(`N = α·N = ${n(c.alpha, 3)}·${n(c.Nfull)} = ${n(c.N, 1)} кН`)} — часть силы передаётся стенкам стакана.` : `Сила ${F(`N = ${n(c.N, 1)} кН`)} — полная сила в колонне.`} Эксцентриситет ${F(`e_{0} = ${n(c.e0x, 0)} / ${n(c.e0y, 0)} мм`)} ${c.uniform ? '≤' : '>'} b/6 — нагрузка ${c.uniform ? 'равномерная' : 'неравномерная'}.`));
+      list.push(localOne(c, what, `${c.kind === 'cup' ? `Сила ${F(`N = α·N = ${n(c.alpha, 3)}·${nF(c.Nfull)} = ${nF(c.N, 1)} кН`)} — часть силы передаётся стенкам стакана.` : `Сила ${F(`N = ${nF(c.N, 1)} кН`)} — полная сила в колонне.`} Эксцентриситет ${F(`e_{0} = ${n(c.e0x, 0)} / ${n(c.e0y, 0)} мм`)} ${c.uniform ? '≤' : '>'} b/6 — нагрузка ${c.uniform ? 'равномерная' : 'неравномерная'}.`));
     } else list.push(step('Под колонной', P('Под монолитной колонной проверка не требуется (Пособие пп. 2.17, 2.21 относят её к сборным и стальным колоннам).')));
     if (L.pile) {
       const g = L.pile.gov;
-      list.push(localOne(g, `Над головой сваи — наиболее нагруженная: ${esc(g.name)}`, `Площадь смятия — сечение сваи${L.pile.round ? ` (круглая — квадрат той же площади, сторона ${n(L.pile.bEq, 0)} мм)` : ''}; ${F(`N = ${n(g.N, 1)} кН`)}.`));
+      list.push(localOne(g, `Над головой сваи — наиболее нагруженная: ${esc(g.name)}`, `Площадь смятия — сечение сваи${L.pile.round ? ` (круглая — квадрат той же площади, сторона ${n(L.pile.bEq, 0)} мм)` : ''}; ${F(`N = ${nF(g.N, 1)} кН`)}.`));
     }
     out.push(steps(list));
     return out.join('');
@@ -23715,14 +23737,18 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       P(`От наружных граней сваи до краёв (со смещением): ${F(`a_{x} = ${n(r.ax, 0)}`)}, ${F(`a_{y} = ${n(r.ay, 0)} мм`)}; от внутренних граней до граней ${r.step ? 'ступени' : 'колонны'}: ${F(`c_{01} = ${n(r.c01raw, 0)}`)}, ${F(`c_{02} = ${n(r.c02raw, 0)} мм`)}.`)));
     list.push(step('Нагрузки на сваи',
       P(`Центр колонны ${F(`x_{col} = ${n(r.xcol, 0)}`)}, ${F(`y_{col} = ${n(r.ycol, 0)} мм`)}; центр тяжести свайного поля ${F(`x̄ = ${n(r.xbar, 0)}`)}, ${F(`ȳ = ${n(r.ybar, 0)} мм`)}.`),
-      eq('M_{x,tot} = M_{x} + N·(x_{col} − x̄)', `${sg(p.Mx)} + ${n(p.N)}·${sg((r.xcol - r.xbar) / 1000, 3)}`, `${n(r.MxTot, 1)} кН·м`),
-      eq('M_{y,tot} = M_{y} + N·(y_{col} − ȳ)', `${sg(p.My)} + ${n(p.N)}·${sg((r.ycol - r.ybar) / 1000, 3)}`, `${n(r.MyTot, 1)} кН·м`),
+      eq('M_{x,tot} = M_{x} + N·(x_{col} − x̄)', `${sgF(p.Mx)} + ${nF(p.N)}·${sg((r.xcol - r.xbar) / 1000, 3)}`, `${nF(r.MxTot, 1)} кН·м`),
+      eq('M_{y,tot} = M_{y} + N·(y_{col} − ȳ)', `${sgF(p.My)} + ${nF(p.N)}·${sg((r.ycol - r.ybar) / 1000, 3)}`, `${nF(r.MyTot, 1)} кН·м`),
       eq('F_{i} = N/n + M_{x,tot}·(x_{i} − x̄)/∑(x_{i} − x̄)^{2} + M_{y,tot}·(y_{i} − ȳ)/∑(y_{i} − ȳ)^{2}', '', '', 'реакции — в таблице свай в форме слева'),
-      tbl(['Свая', 'x, мм', 'y, мм', 'F_{i}, кН'], r.pileRows.map((q, i) => [String(i + 1), n(q.x, 0), n(q.y, 0), `${n(q.F, 1)}${q.Fmanual !== null ? ' (задано)' : ''}`]))));
+      tbl(['Свая', 'x, мм', 'y, мм', 'F_{i}, кН'], r.pileRows.map((q, i) => [String(i + 1), n(q.x, 0), n(q.y, 0), `${nF(q.F, 1)}${q.Fmanual !== null ? ' (задано)' : ''}`]))));
     return steps(list);
   }
 
-  return { sp63, colPos, colSp63, corner, sections, local, geo, n, k3 };
+  const conv = (fn) => (...args) => { const h = fn(...args); return UT ? h.replace(/кН/g, 'тс') : h; };
+  return {
+    sp63: conv(sp63), colPos: conv(colPos), colSp63: conv(colSp63), corner: conv(corner), sections: conv(sections), local: conv(local), geo: conv(geo),
+    setUnits, n, k3,
+  };
 });
 
 </script>
@@ -23731,7 +23757,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   'use strict';
   const C = window.RostverkCalc;
   // Страница и подключаемые файлы ядра должны быть одной версии: иначе часть расчёта не отобразится
-  const APP_VERSION = '2026-10-20.3';
+  const APP_VERSION = '2026-10-20.4';
   function banner(msg) {
     let el = document.getElementById('appBanner');
     if (!el) {
@@ -23847,6 +23873,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     if (saved && Array.isArray(saved.projects)) {
       ws.projects = saved.projects.filter((pr) => pr && pr.data).map((pr) => ({ id: pr.id || newId(), data: normalize(pr.data) }));
       ws.active = saved.active;
+      ws.units = saved.units === 'тс' ? 'тс' : 'кН';
     }
     if (!ws.projects.length) { // данные прежней версии (один ростверк)
       const old = JSON.parse(localStorage.getItem(STORE_KEY) || 'null');
@@ -23885,6 +23912,21 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   }
   const fmtK = (k) => (isNum(k) ? k.toLocaleString('ru-RU', { minimumFractionDigits: 3, maximumFractionDigits: 3 }) : '—');
 
+  // ---------- Единицы сил: кН или тс (1 тс = 10 кН, как в шаблоне Excel) ----------
+  // Настройка рабочей области (общая для всех ростверков). Расчёт и данные проектов — всегда в кН;
+  // в тс пересчитываются только ввод и вывод
+  const TS = 10;
+  const inTs = () => ws.units === 'тс';
+  const isForceU = (u) => /^кН(·м|\/см)?$/.test(u || '');
+  const uLab = (u) => (inTs() && isForceU(u) ? u.replace('кН', 'тс') : u);
+  const toU = (v, u) => (inTs() && isForceU(u) && isNum(v) ? v / TS : v);
+  const fromU = (v, u) => (inTs() && isForceU(u) && isNum(v) ? v * TS : v);
+  const inVal = (v, u) => String(+toU(v, u).toPrecision(12)); // значение для поля ввода без «хвостов» деления
+  // Числа в кН внутри готового текста (замечания расчёта, сравнение проверок) — в выбранных единицах
+  const NUM_KN = /(-?\d{1,3}(?:[ \u00a0\u2009\u202f]\d{3})+(?:,\d+)?|-?\d+(?:,\d+)?)\s?кН(·м|\/см(?!²))?(?!\/см²)/g;
+  const convText = (t) => (inTs() ? String(t).replace(NUM_KN, (m0, n, suf) => `${fmt(+n.replace(/[ \u00a0\u2009\u202f]/g, '').replace(',', '.') / TS)} тс${suf || ''}`) : t);
+  const convIssues = (list) => list.map((e) => ({ ...e, title: convText(e.title), text: convText(e.text) }));
+
   // ---------- Форма ----------
   const form = $('form');
   function controlHtml(f) {
@@ -23894,14 +23936,14 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       const opts = f.opts.map((o) => (Array.isArray(o) ? o : [o, o]));
       return `<div class="${cls}"><select id="f-${f.k}" data-k="${f.k}">${opts.map(([t, v], i) => `<option value="${i}">${esc(t)}</option>`).join('')}</select></div>`;
     }
-    return `<div class="${cls}${f.fixed ? ' fixed' : ''}"><input id="f-${f.k}" data-k="${f.k}" type="number" step="any" inputmode="decimal"${f.fixed ? ' disabled' : ''}>${f.u ? `<span class="u">${f.u}</span>` : ''}</div>`;
+    return `<div class="${cls}${f.fixed ? ' fixed' : ''}"><input id="f-${f.k}" data-k="${f.k}" type="number" step="any" inputmode="decimal"${f.fixed ? ' disabled' : ''}>${f.u ? `<span class="u">${uLab(f.u)}</span>` : ''}</div>`;
   }
   function buildForm() {
     form.innerHTML = GROUPS.map((g, gi) => {
       if (g.piles) {
         return `<fieldset id="g-${gi}"><legend>${g.title}</legend>
           <p class="small">Координаты осей свай от угла ростверка у проверяемой сваи. Fi вручную — из ЛИРА и т.п. (без веса ростверка); пусто — от N и M.</p>
-          <div class="piles-wrap"><table class="piles"><thead><tr><th>№</th><th>x, мм</th><th>y, мм</th><th>Fi вручную, кН</th><th>Fi от N, M</th><th>Fi расч.</th><th></th></tr></thead><tbody id="pileBody"></tbody></table></div>
+          <div class="piles-wrap"><table class="piles"><thead><tr><th>№</th><th>x, мм</th><th>y, мм</th><th id="pileFHead">Fi вручную, кН</th><th>Fi от N, M</th><th>Fi расч.</th><th></th></tr></thead><tbody id="pileBody"></tbody></table></div>
           <div class="toolbar"><button class="btn small" type="button" id="addPile">Добавить сваю</button></div>
         </fieldset>`;
       }
@@ -23927,10 +23969,14 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         const idx = opts.findIndex(([, ov]) => ov === v || (typeof ov === 'boolean' && ov === (v === 'Да')));
         el.value = String(Math.max(0, idx));
       } else {
-        el.value = isNum(v) ? String(v) : '';
+        el.value = isNum(v) ? inVal(v, f.u) : '';
+        const uEl = el.parentElement.querySelector('.u');
+        if (uEl) uEl.textContent = uLab(f.u);
       }
       el.closest('.ctl').classList.remove('invalid');
     }
+    $('pileFHead').textContent = `Fi вручную, ${uLab('кН')}`;
+    document.querySelectorAll('#unitsSeg [data-units]').forEach((b) => b.setAttribute('aria-pressed', String((ws.units || 'кН') === b.dataset.units)));
     renderPiles();
   }
   form.addEventListener('input', (e) => {
@@ -23952,7 +23998,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       const ok = raw === '' ? !!f.optional : isNum(+raw.replace(',', '.'));
       el.closest('.ctl').classList.toggle('invalid', !ok);
       if (!ok) { setStatus(`Поле «${f.label}»: введите число.`, true); return; }
-      state[k] = raw === '' ? null : +raw.replace(',', '.');
+      state[k] = raw === '' ? null : fromU(+raw.replace(',', '.'), f.u);
     }
     update();
   });
@@ -23975,7 +24021,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       <td>${i + 1}</td>
       <td><input id="p-${i}-x" data-p="x" type="number" step="any" value="${p.x}" aria-label="Свая ${i + 1}, x"></td>
       <td><input id="p-${i}-y" data-p="y" type="number" step="any" value="${p.y}" aria-label="Свая ${i + 1}, y"></td>
-      <td><input id="p-${i}-F" data-p="F" class="load" type="number" step="any" value="${isNum(p.F) ? p.F : ''}" placeholder="авто" aria-label="Свая ${i + 1}, F вручную"></td>
+      <td><input id="p-${i}-F" data-p="F" class="load" type="number" step="any" value="${isNum(p.F) ? inVal(p.F, 'кН') : ''}" placeholder="авто" aria-label="Свая ${i + 1}, F вручную"></td>
       <td class="num" data-c="Fauto">—</td><td class="num" data-c="F">—</td>
       <td><button class="x-btn" type="button" data-del="${i}" aria-label="Удалить сваю ${i + 1}" title="Удалить сваю">×</button></td></tr>`).join('');
   }
@@ -23986,7 +24032,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     lastApplied = null;
     const i = +el.closest('tr').dataset.i;
     const raw = el.value.trim();
-    if (el.dataset.p === 'F') state.piles[i].F = raw === '' ? null : +raw;
+    if (el.dataset.p === 'F') state.piles[i].F = raw === '' ? null : fromU(+raw, 'кН');
     else if (raw !== '' && isNum(+raw)) state.piles[i][el.dataset.p] = +raw;
     else { setStatus(`Свая ${i + 1}: координата должна быть числом.`, true); return; }
     update();
@@ -24054,13 +24100,13 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     const rows = $('pileBody').querySelectorAll('tr');
     r.pileRows.forEach((q, i) => {
       if (!rows[i]) return;
-      rows[i].querySelector('[data-c="Fauto"]').textContent = fmt(q.Fauto, 1);
-      rows[i].querySelector('[data-c="F"]').textContent = fmt(q.F, 1);
+      rows[i].querySelector('[data-c="Fauto"]').textContent = fmt(toU(q.Fauto, 'кН'), inTs() ? 2 : 1);
+      rows[i].querySelector('[data-c="F"]').textContent = fmt(toU(q.F, 'кН'), inTs() ? 2 : 1);
     });
   }
 
   // ---------- Замечания к исходным данным ----------
-  const issueItems = (list) => list.map((e) => `<li><b>${esc(e.title)}</b><span>${esc(e.text)}</span></li>`).join('');
+  const issueItems = (list) => convIssues(list).map((e) => `<li><b>${esc(e.title)}</b><span>${esc(e.text)}</span></li>`).join('');
   function renderBlocked(errors) {
     const el = $('blocked');
     el.hidden = false;
@@ -24253,7 +24299,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         ? `<circle cx="${X(q.x)}" cy="${Y(q.y)}" r="${d / 2}" fill="var(--pile)" stroke="var(--slab-line)" stroke-width="1" ${nse}/>`
         : rect(q.x - d / 2, q.y - d / 2, q.x + d / 2, q.y + d / 2, `fill="var(--pile)" stroke="var(--slab-line)" stroke-width="1" ${nse}`);
       s += `<text x="${X(q.x)}" y="${Y(q.y) - fs * 0.15}" font-size="${fs}" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">${i + 1}</text>`;
-      s += `<text x="${X(q.x)}" y="${Y(q.y) + fs * 0.95}" font-size="${fs * 0.75}" text-anchor="middle" fill="var(--muted)" font-family="var(--font-mono)">${fmt(q.F, 0)} кН</text>`;
+      s += `<text x="${X(q.x)}" y="${Y(q.y) + fs * 0.95}" font-size="${fs * 0.75}" text-anchor="middle" fill="var(--muted)" font-family="var(--font-mono)">${fmt(toU(q.F, 'кН'), inTs() ? 1 : 0)} ${uLab('кН')}</text>`;
     });
     // Проверяемая свая с учётом смещения
     const cx = p.xPile + r.s * r.dX, cy = p.yPile + r.s * r.dY;
@@ -24306,10 +24352,10 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       $('meshSum').style.color = bad ? 'var(--bad)' : '';
     }
     $('schemeCol').innerHTML = sc.column.svg;
-    $('schemeColCap').textContent = sc.column.caption;
+    $('schemeColCap').textContent = convText(sc.column.caption);
     if (sc.corner) {
       $('schemeCor').innerHTML = sc.corner.svg;
-      $('schemeCorCap').textContent = sc.corner.caption;
+      $('schemeCorCap').textContent = convText(sc.corner.caption);
     } else {
       $('schemeCor').innerHTML = '<div class="empty">Расчёт по п. 2.9 Пособия выполняется только для угловой сваи. Для крайней сваи проверяется продавливание по СП 63: расчётный контур показан на схеме ростверка выше.</div>';
       $('schemeCorCap').textContent = '';
@@ -24320,8 +24366,10 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   function table(cols, rows, govIdx) {
     const head = `<tr><th class="l">Величина</th><th class="l" style="min-width:4em"></th>${cols.map((c, i) => `<th class="${i === govIdx ? 'gov' : ''}">${esc(c)}</th>`).join('')}<th class="u">Ед.</th></tr>`;
     const body = rows.map((row) => {
-      const [label, sym, vals, unit, opt] = row;
+      const [label, sym, vals0, unit0, opt] = row;
       const digits = opt && opt.d;
+      const vals = isForceU(unit0) ? vals0.map((v) => toU(v, unit0)) : vals0;
+      const unit = uLab(unit0);
       return `<tr class="${opt && opt.key ? 'key' : ''}"><td class="l">${esc(label)}</td><td class="s">${esc(sym || '')}</td>${vals.map((v, i) =>
         `<td class="v ${i === govIdx ? 'gov' : ''}${opt && opt.k && isNum(v) && v > 1 ? ' bad' : ''}">${esc(typeof v === 'number' && opt && opt.k ? fmtK(v) : fmt(v, digits))}</td>`).join('')}<td class="u">${esc(unit || '')}</td></tr>`;
     }).join('');
@@ -24424,8 +24472,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       ['Предельное усилие Fb,ult = Rbt·u·h0', 'Fb,ult', cc.Fb, 'кН'],
       ['Продавливающая сила — реакции свай вне основания пирамиды', 'F', cc.F, 'кН'],
       ['Свай вне основания пирамиды', 'n', cc.nOut, 'шт'],
-      ['Моменты 0,5·Mx / 0,5·My', 'MX / MY', `${fmt(cc.MX)} / ${fmt(cc.MY)}`, 'кН·м'],
-      ['Предельные моменты MbX,ult / MbY,ult', '', `${fmt(cc.MbX)} / ${fmt(cc.MbY)}`, 'кН·м'],
+      ['Моменты 0,5·Mx / 0,5·My', 'MX / MY', `${fmt(toU(cc.MX, 'кН·м'))} / ${fmt(toU(cc.MY, 'кН·м'))}`, uLab('кН·м')],
+      ['Предельные моменты MbX,ult / MbY,ult', '', `${fmt(toU(cc.MbX, 'кН·м'))} / ${fmt(toU(cc.MbY, 'кН·м'))}`, uLab('кН·м')],
       ['K = F/Fb,ult + min(ΣM/Mb,ult; 0,5·F/Fb,ult), ф. (8.95)', 'K', cc.K, '', { key: true, k: true }],
     ]) + (cc.inSlab ? '' : '<p class="small">Контур выходит за край ростверка — расчёт по замкнутому контуру приближённый.</p>');
 
@@ -24513,7 +24561,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       ['Длина проекции наклонного сечения (ближайший ряд)', 'c', se.map((v) => v.c), 'см'],
       ['Qb = 1,5·Rbt·b·h0²/c в пределах 0,5…2,5·Rbt·b·h0', 'Qb', se.map((v) => v.Qb), 'кН'],
       ['Рядов свай за гранью (сечение у каждого ряда, Пособие п. 2.11)', '', se.map((v) => v.shearRows.length), 'шт'],
-      ['Определяющее сечение: c / Q / Qb', '', se.map((v) => `${fmt(v.shearGov.c / 10)} / ${fmt(v.shearGov.Q, 0)} / ${fmt(v.shearGov.Qb, 0)}`), 'см / кН / кН'],
+      ['Определяющее сечение: c / Q / Qb', '', se.map((v) => `${fmt(v.shearGov.c / 10)} / ${fmt(toU(v.shearGov.Q, 'кН'), inTs() ? 1 : 0)} / ${fmt(toU(v.shearGov.Qb, 'кН'), inTs() ? 1 : 0)}`), `см / ${uLab('кН')} / ${uLab('кН')}`],
       ['Коэффициент использования (наклонное сечение)', 'Q/Qb', se.map((v) => v.KQb), '', { key: true, k: true }],
       ['Изгибающий момент M = ΣFi·(xi + e0)', 'M', se.map((v) => v.M), 'кН·м'],
       ['Площадь рабочей арматуры, пересекающей сечение', 'As', se.map((v) => v.As), 'см²'],
@@ -24540,6 +24588,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     const nFail = r.summary.filter((q) => q.pass === false).length;
     // Пошаговые пояснения (explain.js); прежние таблицы — свёрнуто под ними
     const X = window.RostverkExplain;
+    if (X) X.setUnits(inTs() ? 'тс' : 'кН'); // единицы сил в пояснениях — как на странице
     const more = (t, h) => `<details class="xs-more"><summary>${esc(t)}</summary><div class="xs-more-b">${h}</div></details>`;
     const ex = (fn, fallback) => { if (!X) return fallback; try { return fn(); } catch (e) { return `<p class="small">Пояснение не построено: ${esc(e.message)}</p>` + fallback; } };
     const TBL = 'Все величины — таблица';
@@ -24623,7 +24672,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       why.push('По Пособию поперечная сила мала, и прочность наклонного сечения по моменту считается обеспеченной без расчёта; СП 63 такого послабления не содержит.');
     }
     const choice = `<p class="small">В итог входит проверка ${usedSp ? '<b>по СП 63</b> (действующий нормативный документ)' : '<b>по Пособию</b>'} — метод выбирается в поле «Проверка наклонного сечения по моменту» (раздел «Армирование подошвы»). ${usedSp ? 'Проверка по Пособию приведена для сравнения.' : 'Учтите, что Пособие разработано к заменённому СНиП 2.03.01-84; при экспертизе основной считается проверка по СП 63.'}</p>`;
-    return tbl + (why.length ? `<p class="small"><b>Почему результаты различаются:</b> ${why.join(' ')}</p>` : '') + choice;
+    return convText(tbl + (why.length ? `<p class="small"><b>Почему результаты различаются:</b> ${why.join(' ')}</p>` : '') + choice);
   }
 
   function localInner(r) {
@@ -24646,7 +24695,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         bolt: ['Под торцом сборной колонны на анкерных болтах (башмаки PEIKKO)', 'Пособие п. 2.17'] }[c.kind];
       const body = {
         steel: `Площадка ${fmt(c.bx)}×${fmt(c.by)} мм; N — полная сила в колонне.`,
-        cup: `Площадка — торец колонны ${fmt(c.bx)}×${fmt(c.by)} мм; N = α·N = ${fmt(c.alpha, 3)}·${fmt(c.Nfull)} кН (часть силы передаётся стенкам стакана). Ab,max ограничена ${c.pk ? 'размерами подколонника' : 'краями плиты ростверка'}.`,
+        cup: `Площадка — торец колонны ${fmt(c.bx)}×${fmt(c.by)} мм; N = α·N = ${fmt(c.alpha, 3)}·${fmt(toU(c.Nfull, 'кН'))} ${uLab('кН')} (часть силы передаётся стенкам стакана). Ab,max ограничена ${c.pk ? 'размерами подколонника' : 'краями плиты ростверка'}.`,
         bolt: `Площадка — торец колонны ${fmt(c.bx)}×${fmt(c.by)} мм на верхе ростверка (через подливку); N — полная сила в колонне, α = 1. Ab,max ограничена краями ростверка. Болты, башмаки и подливка — по документации PEIKKO.`,
       }[c.kind];
       out.push(`<p class="small"><b>${head[0]}</b> (${head[1]}). ${body} `
@@ -24760,9 +24809,9 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     const q = lastResult.pileRows.find((pr) => Math.abs(pr.x - state.xPile) <= state.pileSize / 2 && Math.abs(pr.y - state.yPile) <= state.pileSize / 2);
     if (!q) { setStatus('В таблице свай нет сваи с привязкой проверяемой сваи — сверьте xсв, yсв.', true); return; }
     state.F1 = Math.round(q.F * 10) / 10;
-    $('f-F1').value = String(state.F1);
+    $('f-F1').value = inVal(state.F1, 'кН');
     update();
-    setStatus(`F1 = ${fmt(state.F1, 1)} кН — реакция сваи из таблицы.`);
+    setStatus(`F1 = ${fmt(toU(state.F1, 'кН'), inTs() ? 2 : 1)} ${uLab('кН')} — реакция сваи из таблицы.`);
   });
   $('resetBtn').addEventListener('click', () => { lastApplied = null; state = Object.assign(clone(C.DEFAULTS), { reportName: state.reportName || '' }); fillForm(); update(); setStatus('Восстановлен пример из шаблона.'); });
 
@@ -24854,8 +24903,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         if (f.opts) { const o = f.opts.map((q) => (Array.isArray(q) ? q : [q, q])).find(([, ov]) => ov === v); v = o ? o[0] : String(v); }
         else if (f.autoFrom && !isNum(v)) v = fmt(r[f.autoFrom]) + ` (${f.autoNote || 'СП 45'})`;
         else if (f.optional && !isNum(v)) v = 'нет';
-        else v = fmt(v, 3);
-        return { label: f.label, sym: f.sym && f.sym !== 'класс' ? f.sym : '', value: v, unit: f.u || '' };
+        else v = fmt(toU(v, f.u), 3);
+        return { label: f.label, sym: f.sym && f.sym !== 'класс' ? f.sym : '', value: v, unit: uLab(f.u || '') };
       }),
     }));
   }
@@ -24879,7 +24928,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       markupToPng(sc.corner && sc.corner.svg, 330),
       markupToPng(sc.mesh && sc.mesh.svg, 400),
     ]);
-    return { r, opts: { name: (data.reportName || '').trim(), inputGroups: inputGroupsForReport(data, r), images: { plan, column, corner, mesh }, warnings: v.warnings } };
+    return { r, opts: { name: (data.reportName || '').trim(), inputGroups: inputGroupsForReport(data, r), images: { plan, column, corner, mesh }, warnings: convIssues(v.warnings), units: ws.units || 'кН' } };
   }
   const reportNotes = () => [...document.querySelectorAll('.notes li')].map((li) => li.textContent.trim());
   const libsReady = () => {
@@ -24988,13 +25037,20 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       }
       if (!items.length) throw new Error('нет ростверков с корректными исходными данными');
       const title = $('manyName').value.trim();
-      const blob = await window.RostverkReport.createMany(window.docx, window.JSZip, items, { name: title, notes: reportNotes() }, 'blob');
+      const blob = await window.RostverkReport.createMany(window.docx, window.JSZip, items, { name: title, notes: reportNotes(), units: ws.units || 'кН' }, 'blob');
       await saveFile(`Сводный_отчет_${title ? safeName(title) + '_' : ''}${items.length}_ростверков.docx`, blob);
     } catch (e) {
       setStatus('Не удалось сформировать сводный отчёт: ' + (e && e.message ? e.message : e), true);
     } finally { btn.disabled = false; }
   });
 
+  $('unitsSeg').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-units]');
+    if (!b || (ws.units || 'кН') === b.dataset.units) return;
+    ws.units = b.dataset.units;
+    fillForm(); update();
+    setStatus(ws.units === 'тс' ? 'Силы и моменты — в тс (1 тс = 10 кН), отчёт Word — тоже.' : 'Силы и моменты — в кН.');
+  });
   buildForm();
   fillForm();
   update();
