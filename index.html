@@ -1593,6 +1593,17 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     if (!(p.F1 > 0)) warn('f1-zero', 'Нагрузка на проверяемую сваю не положительна', 'Продавливание сваей при F1 ≤ 0 не возникает — проверьте знак и значение F1.', ['F1']);
     if (p.kM > 1 || p.kLim > 1) warn('k-range', 'Коэффициенты kM и k обычно не больше 1', `kM = ${fmtN(p.kM)}, k = ${fmtN(p.kLim)}.`, ['kM', 'kLim']);
 
+    // Момент F·e0 не учитывается, а определяющий контур незамкнутый — запас завышен (СП 63 п. 8.1.46)
+    if (!yes(p.useFe0) && r.sp63 && !r.sp63.beam && isNum(r.sp63.K)) {
+      const rFe = compute(Object.assign({}, p, { useFe0: true }));
+      const kFe = rFe.sp63.K, gov = rFe.sp63.governing;
+      if (isNum(kFe) && kFe > r.sp63.K + 5e-4) {
+        const k3 = (v) => v.toFixed(3).replace('.', ',');
+        warn('fe0-off', 'Не учтён момент F·e0 для незамкнутого контура',
+          `Определяющий контур продавливания сваей по СП 63 незамкнутый («${gov}»): сила сваи приложена внецентренно относительно его центра тяжести, и по СП 63 п. 8.1.46 момент F·e0 учитывается. С ним K = ${k3(kFe)}${kFe > 1 ? ' > 1 — прочность НЕ обеспечена' : ''}, без него — ${k3(r.sp63.K)}. Установите «Да».`, ['useFe0']);
+      }
+    }
+
     // 6. Поперечная арматура (Пособие к СП 52-101, п. 5.26)
     if (yes(p.useTransverse)) {
       if (p.swPerp > r.h0 / 3 || p.swPerp > 300) {
@@ -1605,7 +1616,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     return { errors, warnings, result: errors.length ? null : r };
   }
 
-  const VERSION = '2026-10-19.1'; // должна совпадать с версией страницы и отчёта (index.html, report.js)
+  const VERSION = '2026-10-20.1'; // должна совпадать с версией страницы и отчёта (index.html, report.js)
   return { VERSION, compute, validate, suggest, DEFAULTS, CONCRETE, REBAR, BETA_TABLE, betaOf, meshSteps };
 });
 
@@ -22824,7 +22835,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     });
   }
 
-  const VERSION = '2026-10-19.1';
+  const VERSION = '2026-10-20.1';
   return { VERSION, create, createMany, build, omml, injectMath, FONT };
 });
 
@@ -23179,7 +23190,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   'use strict';
   const C = window.RostverkCalc;
   // Страница и подключаемые файлы ядра должны быть одной версии: иначе часть расчёта не отобразится
-  const APP_VERSION = '2026-10-19.1';
+  const APP_VERSION = '2026-10-20.1';
   function banner(msg) {
     let el = document.getElementById('appBanner');
     if (!el) {
@@ -23245,7 +23256,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       { k: 'MYpile', cell: 'C39', label: 'Момент в голове сваи по Y', sym: 'MY', u: 'кН·м', load: true },
       { k: 'kM', label: 'Доля момента, учитываемая при продавливании', sym: 'kM', fixed: true, hint: 'Нормативное значение: половина момента — СП 63.13330.2018 п. 8.1.46' },
       { k: 'kLim', label: 'Ограничение моментного члена ΣM/Mult ≤ k·F/Fult', sym: 'k', fixed: true, hint: 'Нормативное значение — СП 63.13330.2018 п. 8.1.46, ф. (8.95)' },
-      { k: 'useFe0', cell: 'C42', label: 'Учитывать момент F·e0 для незамкнутого контура', opts: YESNO, hint: 'Пособие к СП 52-101 пп. 3.84, 3.85' },
+      { k: 'useFe0', cell: 'C42', label: 'Учитывать момент F·e0 для незамкнутого контура', opts: YESNO, hint: 'СП 63 п. 8.1.46: у края и угла контур незамкнутый, его центр тяжести смещён внутрь ростверка — сила сваи внецентренна, момент F·e0 учитывается. Для замкнутого контура e0 = 0. «Нет» — только для сверки с Excel-шаблоном' },
     ] },
     { title: 'Нагрузки от колонны', fields: [
       { k: 'N', cell: 'C70', label: 'Продольная сила в колонне у верха ростверка', sym: 'N', u: 'кН', load: true, hint: 'Пособие п. 2.2: без веса ростверка и грунта' },
