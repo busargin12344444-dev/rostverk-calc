@@ -574,6 +574,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     bpk: null,                    // подколонник по X, мм (пусто — подколонника нет, площадь ограничивает плита)
     hpk: null,                    // подколонник по Y, мм
     anchorMethod: 'СП 63 п. 8.1.35', // | 'Пособие п. 2.15'
+    pilePunchMethod: 'Обе проверки', // продавливание сваей в итоге: | 'Только Пособие п. 2.9' | 'Только СП 63 п. 8.1.46'
     stepOn: false,                // ступень (утолщение) под колонной — Пособие пп. 2.9, 2.10, 2.12
     stepL: 1200,                  // ступень в плане по X, мм (по центру колонны)
     stepB: 1200,                  // ступень в плане по Y, мм
@@ -1179,6 +1180,18 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     const yes = (v) => v === true || v === 'Да';
     const useSw = yes(p.useTransverse);
 
+    // Продавливание сваей: какие проверки входят в итог (вторая остаётся для сравнения).
+    // По Пособию проверяется только угловая свая (п. 2.9): для крайней сваи в итог всегда входит СП 63.
+    const ppm = p.pilePunchMethod === 'Только Пособие п. 2.9' ? 'pos' : p.pilePunchMethod === 'Только СП 63 п. 8.1.46' ? 'sp' : 'both';
+    const posOnly = ppm === 'pos' && corner, spOnly = ppm === 'sp';
+    const punchK = (Kc, Ksp, applicable) => {
+      const a = isNum(Kc) ? Kc : 0, b = isNum(Ksp) ? Ksp : 0;
+      if (spOnly) return b;
+      if (posOnly) return applicable ? a : 0; // «Не требуется» по прим. 2 к табл. 1 Пособия
+      return Math.max(a, b);
+    };
+    r.pilePunch = { method: ppm, posOnly, spOnly };
+
     // Все угловые сваи куста — по реакциям из таблицы (зеркальное отражение геометрии к углу X=0, Y=0)
     r.allCorners = [];
     if (corner && r.n >= 2) {
@@ -1201,7 +1214,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
         r.allCorners.push({
           name: names[`${sx}${sy}`], pile: idx + 1, F: piles[idx].F,
           Kcorner: Kc, cornerStatus: rc.corner.status, Ksp, spGov: rc.sp63.governing,
-          K: Math.max(isNum(Kc) ? Kc : 0, isNum(Ksp) ? Ksp : 0),
+          K: punchK(Kc, Ksp, rc.corner.applicable),
         });
       }
     }
@@ -1219,6 +1232,9 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     const Kcol = r.column.K, Kb = r.sp63.K, Ksw = useSw ? r.sp63.Ksw : null, KbOut = r.sp63.KbOut, swCounted = r.sp63.swCounted;
     const OK = 'Прочность обеспечена', NOK = 'Прочность НЕ обеспечена';
     const KallC = r.allCorners.length ? Math.max(...r.allCorners.map((c) => c.K)) : null;
+    // Строка «для сравнения»: K и вердикт показываются, в итог не входит (pass = null)
+    const CMP = (row, why) => Object.assign(row, { inOverall: false, cmpPass: row.pass, pass: null,
+      verdict: `Для сравнения: ${row.pass === false ? 'K > 1' : row.pass === true ? 'K ≤ 1' : row.verdict}`, note: why });
     const summary = [
       { key: 'column', title: r.column.two ? 'Продавливание колонной, куст из 2 свай (Пособие пп. 2.6, 2.7, ф. (8))' : 'Продавливание колонной (Пособие пп. 2.2–2.5)', K: Kcol,
         verdict: ok(Kcol) ? OK : NOK, pass: ok(Kcol) },
@@ -1267,9 +1283,22 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
       verdict: r.edgeDesign < 0 ? 'НЕ выполнено: свая за краем ростверка' : r.edgeDesign >= minEdge ? 'Выполнено' : 'НЕ выполнено',
       pass: r.edgeDesign >= minEdge,
     };
+    // Выбранный метод продавливания сваей: вторая проверка — для сравнения, в итог не входит
+    const allTitle = posOnly ? 'Все угловые сваи куста (Пособие п. 2.9, по реакциям из таблицы)' : spOnly ? 'Все угловые сваи куста (СП 63, по реакциям из таблицы)' : null;
+    if (allTitle) summary.find((q) => q.key === 'allcorners').title = allTitle;
+    if (spOnly) {
+      const c = summary.find((q) => q.key === 'corner');
+      if (c.pass !== null || isNum(c.K)) CMP(c, 'в итог не входит: выбрано «Продавливание сваей в итоге — только СП 63»');
+    }
+    if (posOnly) {
+      const why = 'в итог не входит: выбрано «Продавливание сваей в итоге — только Пособие»';
+      CMP(summary.find((q) => q.key === 'sp63'), why);
+      const sw = summary.find((q) => q.key === 'sp63sw');
+      if (useSw) CMP(sw, why);
+    }
     // Продавливание сваей по СП 63: достаточно, чтобы прошла проверка по бетону ИЛИ с поперечной арматурой
-    const overall = summary.filter((s) => s.key !== 'sp63' && s.key !== 'sp63sw').every((s) => s.pass !== false)
-      && (r.sp63.beam || ok(Kb) || (useSw && swCounted && ok(Ksw) && ok(KbOut)));
+    const sp63Ok = posOnly || r.sp63.beam || ok(Kb) || (useSw && swCounted && ok(Ksw) && ok(KbOut));
+    const overall = summary.filter((s) => s.key !== 'sp63' && s.key !== 'sp63sw').every((s) => s.pass !== false) && sp63Ok;
     r.summary = summary;
     r.edgeCheck = edgeCheck;
     r.KMsMax = KMsMax; r.KPMax = KPMax;
@@ -1655,6 +1684,23 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
       }
     }
 
+    // Продавливание сваей в итоге — одним методом: о непрошедшей второй проверке и о крайней свае
+    if (r.pilePunch && r.pilePunch.method !== 'both') {
+      const k3 = (v) => v.toFixed(3).replace('.', ',');
+      if (r.pilePunch.method === 'pos' && p.pilePosition !== 'Угловая') {
+        warn('ppm-edge', 'Для крайней сваи в итог входит СП 63', 'Пособие по ростверкам (п. 2.9) содержит проверку продавливания только угловой сваей; крайняя свая проверяется по СП 63 п. 8.1.46 независимо от выбранного метода.', ['pilePunchMethod']);
+      }
+      const other = r.summary.find((q) => q.inOverall === false && q.cmpPass === false);
+      if (other) {
+        const posHidden = r.pilePunch.method === 'pos';
+        warn('ppm-other', `${posHidden ? 'По СП 63' : 'По Пособию'} продавливание сваей не проходит — в итог не входит`,
+          posHidden
+            ? `${other.title}: K = ${k3(other.K)} > 1. В итог принят только расчёт по Пособию — в пояснительной записке нужно обоснование: СП 24.13330.2021 п. 8.4 отсылает к СП 63.`
+            : `${other.title}: K = ${k3(other.K)} > 1. Пособие строже СП 63, когда грани пирамиды близки к 45° (свая далеко от колонны) — его результат стоит учитывать.`,
+          ['pilePunchMethod']);
+      }
+    }
+
     // 6. Поперечная арматура (Пособие к СП 52-101, п. 5.26)
     if (yes(p.useTransverse)) {
       if (p.swPerp > r.h0 / 3 || p.swPerp > 300) {
@@ -1667,7 +1713,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     return { errors, warnings, result: errors.length ? null : r };
   }
 
-  const VERSION = '2026-10-20.4'; // должна совпадать с версией страницы и отчёта (index.html, report.js)
+  const VERSION = '2026-10-20.5'; // должна совпадать с версией страницы и отчёта (index.html, report.js)
   return { VERSION, compute, validate, suggest, DEFAULTS, CONCRETE, REBAR, BETA_TABLE, betaOf, meshSteps };
 });
 
@@ -22612,6 +22658,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     const c = r.corner;
     if (corner) {
       children.push(heading(`${sec}. Расчёт на продавливание угловой сваей`));
+      if (r.pilePunch && r.pilePunch.spOnly) P('Проверка приведена для сравнения и в итоговый вывод не входит: в итог принято продавливание сваей по СП 63.13330.2018 (СП 24.13330.2021 п. 8.4).');
       P('Расчёт по п. 2.9 Пособия по проектированию ростверков, формула (14):', { keepNext: true });
       eq(E('F ≤ R_{bt}·h_{01}·', sq('β_{1}·', pr('b_{02} + ', fr('c_{02}', '2')), ' + β_{2}·', pr('b_{01} + ', fr('c_{01}', '2'))), ','), true);
       P(`где b_{01}, b_{02} — расстояния от внутренних граней сваи до наружных граней ростверка; c_{01}, c_{02} — расстояния от внутренних граней сваи до граней ${r.step ? 'ступени (ступенчатый ростверк, п. 2.9)' : 'колонны'}, 0,4·h_{01} ≤ c_{0i} ≤ h_{01}; β_{1}, β_{2} — по табл. 1 Пособия.`);
@@ -22639,6 +22686,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     const sp = r.sp63;
     const g = sp.governingIndex >= 0 ? sp.variants[sp.governingIndex] : null;
     children.push(heading(`${sec}. Расчёт на продавливание ${corner ? 'угловой' : 'крайней'} сваей по СП 63.13330.2018`));
+    if (r.pilePunch && r.pilePunch.posOnly) P('Проверка приведена для сравнения и в итоговый вывод не входит: в итог принято продавливание угловой сваей по Пособию по проектированию ростверков, п. 2.9 (обоснование — в пояснительной записке; СП 24.13330.2021 п. 8.4 отсылает к СП 63.13330.2018).');
     if (sp.beam) {
       P(`Расчётный контур на расстоянии 0,5·h_{0} = ${f(h0 / 2)} см от граней сваи не помещается в ростверк ни в замкнутом, ни в незамкнутом виде: свая перекрывает ширину ростверка (b = ${f(p.b, 0)} мм), и контур вырождается в линию поперёк ростверка. Ростверк в этом месте работает как балка, поэтому вместо продавливания сваей выполняется расчёт по поперечной силе в наклонных сечениях (СП 63.13330.2018 пп. 8.1.32–8.1.33, раздел ${sec + 1}).`);
     } else {
@@ -22877,7 +22925,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     const ctx = { children: [], eqs: [], cnt: { fig: 0, tab: 0 } };
     const summary = items.map((it, i) => {
       const r = it.r, p = r.input;
-      const worst = r.summary.filter((s) => isNum(s.K)).reduce((a, b) => (b.K > a.K ? b : a), { K: -1, title: '—' });
+      const worst = r.summary.filter((s) => isNum(s.K) && s.inOverall !== false).reduce((a, b) => (b.K > a.K ? b : a), { K: -1, title: '—' });
       return {
         name: (it.opts && it.opts.name) || `Ростверк ${i + 1}`,
         dims: `${f(p.l, 0)}×${f(p.b, 0)}×${f(p.h, 0)}${r.step ? ` + ступень ${f(r.step.L, 0)}×${f(r.step.B, 0)}×${f(r.step.H, 0)}` : ''}`,
@@ -22897,7 +22945,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     });
   }
 
-  const VERSION = '2026-10-20.4';
+  const VERSION = '2026-10-20.5';
   return { VERSION, create, createMany, build, omml, injectMath, FONT };
 });
 
@@ -23374,6 +23422,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       return out.join('');
     }
     const v = sp.variants[sp.governingIndex];
+    if (r.pilePunch && r.pilePunch.posOnly) out.push(`<div class="xs-v na"><b>Для сравнения — в итог не входит</b><span>Выбрано «Продавливание сваей в итоге — только Пособие». Обоснование отступа от СП 63 — в пояснительной записке: СП 24 п. 8.4 отсылает к СП 63.</span></div>`);
     out.push(verdict(useSw && isNum(sp.Ksw) && !(sp.K <= 1) ? sp.Ksw : sp.K, 'Продавливание сваей по СП 63',
       `Определяет ${varText(v.name)} контур; смещение сваи — ${esc(sp.shiftText || '')}.`));
 
@@ -23609,6 +23658,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     const h01 = r.h01;
     const sup = r.step ? 'ступени' : 'колонны';
     const out = [verdict(k.K, 'Продавливание угловой сваей по Пособию', `Смещение сваи — ${esc(k.shiftText || '')}.`)];
+    if (r.pilePunch && r.pilePunch.spOnly) out.unshift(`<div class="xs-v na"><b>Для сравнения — в итог не входит</b><span>Выбрано «Продавливание сваей в итоге — только СП 63».</span></div>`);
     const list = [];
     list.push(step('Что проверяем',
       P(`Угловая свая продавливает угол ростверка вверх. По Пособию п. 2.9 пирамида продавливания идёт от внутренних граней сваи к граням ${sup}; её боковые грани у свободных краёв отсутствуют, поэтому несущая способность определяется двумя гранями — по X и по Y — ф. (14).`)));
@@ -23757,7 +23807,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   'use strict';
   const C = window.RostverkCalc;
   // Страница и подключаемые файлы ядра должны быть одной версии: иначе часть расчёта не отобразится
-  const APP_VERSION = '2026-10-20.4';
+  const APP_VERSION = '2026-10-20.5';
   function banner(msg) {
     let el = document.getElementById('appBanner');
     if (!el) {
@@ -23823,6 +23873,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       { k: 'MYpile', cell: 'C39', label: 'Момент в голове сваи по Y', sym: 'MY', u: 'кН·м', load: true },
       { k: 'kM', label: 'Доля момента, учитываемая при продавливании', sym: 'kM', fixed: true, hint: 'Нормативное значение: половина момента — СП 63.13330.2018 п. 8.1.46' },
       { k: 'kLim', label: 'Ограничение моментного члена ΣM/Mult ≤ k·F/Fult', sym: 'k', fixed: true, hint: 'Нормативное значение — СП 63.13330.2018 п. 8.1.46, ф. (8.95)' },
+      { k: 'pilePunchMethod', label: 'Продавливание сваей в итоговом выводе', opts: ['Обе проверки', 'Только Пособие п. 2.9', 'Только СП 63 п. 8.1.46'], hint: 'В итог входит выбранное; вторая проверка остаётся на странице и в отчёте с пометкой «для сравнения». Пособие — только для угловой сваи: для крайней в итог всегда входит СП 63. СП 24 п. 8.4 отсылает к СП 63 — отказ от него обоснуйте в записке' },
       { k: 'useFe0', cell: 'C42', label: 'Учитывать момент F·e0 для незамкнутого контура', opts: YESNO, hint: 'СП 63 п. 8.1.46: у края и угла контур незамкнутый, его центр тяжести смещён внутрь ростверка — сила сваи внецентренна, момент F·e0 учитывается. Для замкнутого контура e0 = 0. «Нет» — только для сверки с Excel-шаблоном' },
     ] },
     { title: 'Нагрузки от колонны', fields: [
@@ -24224,12 +24275,13 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   }
   function renderChecks(r) {
     const rows = r.summary.map((s) => {
-      const na = s.pass === null;
+      const cmp = s.inOverall === false; // вторая проверка продавливания сваей — для сравнения
+      const na = s.pass === null && !cmp;
       const extra = s.pass === false && /:/.test(s.verdict) ? `<span class="msg">${esc(s.verdict.split(': ')[1])}</span>` : '';
       const go = BLOCK_OF[s.key];
       const note = s.note ? `<span class="note-line">${esc(s.note)}</span>` : '';
       return `<tr${go ? ` data-go="${go}" title="Показать подробный расчёт"` : ''}><td class="t">${esc(s.title)}${na ? `<span class="small"> — ${esc(s.verdict)}</span>` : ''}${extra}${note}${go ? '<span class="go">подробно ↓</span>' : ''}</td>
-        <td class="barc">${bar(s.K)}</td><td class="k">${fmtK(s.K)}</td><td class="vd">${pill(s.pass, na ? 'не выполняется' : '')}</td></tr>`;
+        <td class="barc">${bar(s.K)}</td><td class="k">${fmtK(s.K)}</td><td class="vd">${cmp ? `<span class="pill na" title="В итоговый вывод не входит">для сравнения</span>` : pill(s.pass, na ? 'не выполняется' : '')}</td></tr>`;
     });
     $('checks').innerHTML = rows.join('');
   }
@@ -24379,9 +24431,9 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     return table(['Значение'], rows.map(([l, s, v, u, o]) => [l, s, [v], u, o]));
   }
   const openState = {};
-  function block(id, title, K, inner) {
-    const fail = isNum(K) && K > 1;
-    const kTxt = K === undefined ? '' : `<span class="num small">K = ${fmtK(K)}${fail ? ' > 1' : ''}</span>`;
+  function block(id, title, K, inner, cmp) {
+    const fail = !cmp && isNum(K) && K > 1;
+    const kTxt = K === undefined ? '' : `<span class="num small">${cmp ? 'для сравнения · ' : ''}K = ${fmtK(K)}${isNum(K) && K > 1 ? ' > 1' : ''}</span>`;
     const open = id in openState ? openState[id] : fail; // непрошедшие проверки раскрыты сразу
     return `<details class="blk${fail ? ' fail' : ''}" data-id="${id}" ${open ? 'open' : ''}><summary><h3>${esc(title)}</h3>${kTxt}</summary><div class="body">${inner}</div></details>`;
   }
@@ -24597,16 +24649,16 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       block('geo', 'Расчётные размеры и характеристики материалов', undefined, ex(() => X.geo(r) + more(TBL, geo), geo)),
       block('col', 'Продавливание колонной (Пособие пп. 2.2–2.6, ф. (1), (8))', S.column.K, ex(() => X.colPos(r) + more(TBL, colHead + colTbl + twoTbl + colNote), colHead + colTbl + twoTbl + colNote)),
       block('colsp63', 'Продавливание колонной по СП 63.13330.2018 пп. 8.1.46–8.1.49', S.colsp63.K, ex(() => X.colSp63(r, r.colSp63) + more(TBL, colSpTbl), colSpTbl)),
-      block('corner', 'Продавливание угловой сваей (Пособие п. 2.9, ф. 14)', S.corner.K === null ? undefined : S.corner.K, ex(() => X.corner(r) + more(TBL, cornerTbl), cornerTbl)),
+      block('corner', 'Продавливание угловой сваей (Пособие п. 2.9, ф. 14)', S.corner.K === null ? undefined : S.corner.K, ex(() => X.corner(r) + more(TBL, cornerTbl), cornerTbl), S.corner.inOverall === false),
       r.step ? block('step', 'Продавливание плиты ступенью (ступенчатый ростверк)', S.step.K, ex(() => X.colPos(r, r.stepPunch) + X.colSp63(r, r.stepSp63, true) + more(TBL, stepInner(r)), stepInner(r))) : '',
-      block('sp63', 'Продавливание сваей по СП 63.13330.2018 пп. 8.1.46–8.1.50', S.sp63.K, ex(() => X.sp63(r) + more('Все величины по всем вариантам контура — таблица', spInner), spInner)),
+      block('sp63', 'Продавливание сваей по СП 63.13330.2018 пп. 8.1.46–8.1.50', S.sp63.K, ex(() => X.sp63(r) + more('Все величины по всем вариантам контура — таблица', spInner), spInner), S.sp63.inOverall === false),
       r.allCorners.length ? block('allc', 'Все угловые сваи куста (по реакциям из таблицы)', S.allcorners.K, table(r.allCorners.map((c) => c.name), [
         ['Свая (номер в таблице)', '№', r.allCorners.map((c) => c.pile), ''],
         ['Нагрузка на сваю (реакция из таблицы)', 'F', r.allCorners.map((c) => c.F), 'кН'],
         ['Пособие п. 2.9', 'K', r.allCorners.map((c) => (isNum(c.Kcorner) ? c.Kcorner : c.cornerStatus)), '', { k: true }],
         ['СП 63 (определяющий контур)', 'K', r.allCorners.map((c) => c.Ksp), '', { k: true }],
         ['Контур СП 63', '', r.allCorners.map((c) => c.spGov), ''],
-        ['Наибольший', 'K', r.allCorners.map((c) => c.K), '', { key: true, k: true }],
+        [{ pos: 'В итоге (только Пособие)', sp: 'В итоге (только СП 63)', both: 'Наибольший' }[r.pilePunch.method === 'pos' && !r.pilePunch.posOnly ? 'both' : r.pilePunch.method], 'K', r.allCorners.map((c) => c.K), '', { key: true, k: true }],
       ]) + '<p class="small">Каждая угловая свая куста проверяется так же, как проверяемая (блоки «Продавливание угловой сваей» и «Продавливание сваей по СП 63»), но с нагрузкой — реакцией этой сваи из таблицы свай. Моменты в голове сваи приняты как для проверяемой сваи; допуск на смещение — по выбранному направлению. Итог — наибольший K.</p>') : '',
       block('sec', 'Поперечная сила и изгиб по граням колонны (СП 63 пп. 8.1.8, 8.1.32–8.1.35)', Math.max(S.strip.K, S.shear.K, S.bend.K, S.anchor.K), ex(() => X.sections(r) + more(TBL, secTbl), secTbl)),
       block('anchorcmp', 'Наклонное сечение по моменту: СП 63 и Пособие — сравнение', S.anchor.K, anchorCmpInner(r)),
