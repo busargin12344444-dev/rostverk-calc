@@ -561,7 +561,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     cover: 50,
     meshEdge: null,               // от грани ростверка до оси крайнего стержня сетки, мм (пусто — защитный слой + d/2)
     meshModule: 50,               // шаг стержней сетки кратен, мм (0 — равномерно, без округления)
-    hook: 0,
+    hook: 0,                      // лапка на концах нижних стержней — вертикальный участок, мм (0 — прямые концы)
     eta1: 2.5,
     N: 2000,
     Mx: 0,
@@ -912,7 +912,13 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     // Длина анкеровки по СП 63 ф. (10.1), (10.2): Rbond = η1·η2·Rbt, Rbt — с γb1 (п. 6.1.12);
     // снижение lan до 30 % за загиб концов (лапки) и обжатие от реакции сваи — п. 10.3.25
     const lanRed = isNum(p.lanReduction) ? Math.min(Math.max(p.lanReduction, 0), 0.3) : 0;
-    const lan = (ds) => (1 - lanRed) * Rs * ds / (4 * p.eta1 * (ds > 32 ? 0.9 : 1) * Rbt);
+    // l0,an = Rs·As/(Rbond·us) = Rs·ds/(4·η1·η2·Rbt), ф. (10.1), (10.2); lan = (1 − δ)·l0,an (ф. (10.3), As,cal/As,ef = 1 по
+    // п. 10.3.26), но не менее 0,3·l0,an, 15ds и 200 мм (п. 10.3.25)
+    const l0an = (ds) => Rs * ds / (4 * p.eta1 * (ds > 32 ? 0.9 : 1) * Rbt);
+    const lanMin = (ds) => Math.max(0.3 * l0an(ds), 15 * ds, 200);
+    const lan = (ds) => Math.max((1 - lanRed) * l0an(ds), lanMin(ds));
+    // Лапка (вертикальный отгиб на конце нижнего стержня): ls — по оси стержня до его конца (п. 10.3.26), т. е. прямой участок + лапка
+    const hook = isNum(p.hook) && p.hook > 0 ? p.hook : 0;
     const dsv = bpTable; // размер сечения сваи (Пособие ф. (27), (31))
     // Сечения по граням колонны (h0 — на всю высоту; при ступени: поперечная сила — с приведённой шириной
     // b_red по ф. (16) Пособия, сжатая зона при изгибе — в пределах ширины ступени) и по граням ступени (h0 плиты)
@@ -965,7 +971,8 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
         ? RsCm * d.As * (h0cm - 0.5 * x)
         : RbCm * d.bwC * xiR * h0cm * (h0cm - 0.5 * xiR * h0cm)) / 100;
       // СП 63 п. 8.1.35, 10.3.26: Ns = Rs·As·ls/lan; ls — от внутренней грани ближайшего ряда свай до торца стержня
-      const ls = d.dir > 0 ? d.edge - (d.coord + d.c) - p.cover : (d.coord - d.c) - p.cover;
+      const lsStraight = d.dir > 0 ? d.edge - (d.coord + d.c) - p.cover : (d.coord - d.c) - p.cover;
+      const ls = lsStraight + hook;
       const lanV = lan(d.ds);
       const Ns = RsCm * d.As * Math.max(0, Math.min(1, ls / lanV));
       const Ms = Ns * 0.9 * h0cm / 100;
@@ -984,8 +991,8 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
         const lanP = Math.max((0.5 * Rs / Rb * AsCal / d.As + 8) * d.ds, 12 * d.ds);
         const extPos = d.dir > 0 ? Math.max(...ext.map((q) => q[d.axis])) : Math.min(...ext.map((q) => q[d.axis]));
         const l0 = d.dir > 0 ? d.edge - (extPos + dsv / 2) : extPos - dsv / 2;
-        const lfac = dsv + l0 - p.cover;
-        anchorP = { QlimP, needP, cExt, Fext, Msec, AsCal, lanP, l0, lfac, K: lfac > 0 ? lanP / lfac : 99 };
+        const lfac = dsv + l0 - p.cover + hook; // ф. (31) + лапка по оси стержня
+        anchorP = { QlimP, needP, cExt, Fext, Msec, AsCal, lanP, l0, lfac, hook, K: lfac > 0 ? lanP / lfac : 99 };
       } else if (needP) {
         anchorP = { QlimP, needP, K: 99, note: 'сваи заходят под колонну — проверьте вручную' };
       }
@@ -994,11 +1001,12 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
       return {
         name: d.name, coord: d.coord, bw: d.bw, bwC: d.bwC, bFull: d.bFull, at: d.at, h0: h0cm, Q, Qstrip, Kstrip: Q / Qstrip, c: ccm, Qb, KQb: govRow.K,
         shearRows, shearGov: govRow,
-        M, As: d.As, x, xi, Mult, Kbend: M / Mult, ls, lan: lanV, Ns, Ms, KMs, anchorP, alphaM, AsReq,
+        M, As: d.As, x, xi, Mult, Kbend: M / Mult, ls, lsStraight, hook, ds: d.ds, l0an: l0an(d.ds), lanMin: lanMin(d.ds), lan: lanV, Ns, Ms, KMs, anchorP, alphaM, AsReq,
       };
     });
     r.sections = sections;
     r.lanRed = lanRed;
+    r.hook = hook;
 
     // --- Продавливание колонной по СП 63 пп. 8.1.46–8.1.49 (контур на 0,5·h0 от граней колонны) ---
     // Опора bx × by: колонна (h0 — под колонной) или ступень, продавливающая плиту (h0 плиты)
@@ -1306,7 +1314,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     const gSp = sec.reduce((a, b2) => (b2.KMs > a.KMs ? b2 : a)), gP = sec.reduce((a, b2) => (b2.anchorP.K > a.anchorP.K ? b2 : a));
     r.anchorCompare = {
       used: byPosobie ? 'pos' : 'sp',
-      sp: { K: KMsMax, sec: gSp.name, M: gSp.M, ls: gSp.ls, lan: gSp.lan, Ns: gSp.Ns, Ms: gSp.Ms, As: gSp.As, lanRed: r.lanRed },
+      sp: { K: KMsMax, sec: gSp.name, M: gSp.M, ls: gSp.ls, lsStraight: gSp.lsStraight, hook: gSp.hook, l0an: gSp.l0an, lanMin: gSp.lanMin, lan: gSp.lan, Ns: gSp.Ns, Ms: gSp.Ms, As: gSp.As, lanRed: r.lanRed },
       pos: { K: KPMax, sec: gP.name, Q: gP.Q, As: gP.As, ...gP.anchorP },
     };
     r.overall = overall;
@@ -1372,7 +1380,9 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
       },
       colsize: () => { const out = []; for (let d = 50; d <= 600; d += 50) out.push({ label: `Сечение колонны (подколонника) ${f(base.bcol + d)}×${f(base.hcol + d)} мм`, patch: { bcol: base.bcol + d, hcol: base.hcol + d } }); return out; },
       plate: () => { if (base.colJoint !== 'Стальная колонна (опорная плита базы)') return []; const out = []; for (let d = 50; d <= 800; d += 50) out.push({ label: `Опорная плита базы ${f(base.bpl + d)}×${f(base.hpl + d)} мм`, patch: { bpl: base.bpl + d, hpl: base.hpl + d } }); return out; },
-      lan: () => ((base.lanReduction || 0) < 0.3 ? [{ label: 'Снизить длину анкеровки на 30 % — лапки, обжатие бетона реакцией сваи (СП 63 п. 10.3.25)', patch: { lanReduction: 0.3 } }] : []),
+      lan: () => ((base.lanReduction || 0) < 0.3 ? [{ label: 'Снизить длину анкеровки на 30 % — обжатие бетона реакцией сваи, приваренные поперечные стержни сетки (СП 63 п. 10.3.25)', patch: { lanReduction: 0.3 } }] : []),
+      // Лапки на концах нижних стержней: вертикальный участок по 50 мм, не выше h − 2·защитный слой
+      hook: () => { const out = []; const hMax = base.h - 2 * base.cover; for (let v = Math.ceil(((base.hook || 0) + 1) / 50) * 50; v <= hMax; v += 50) out.push({ label: `Лапки на концах нижних стержней, вертикальный участок ${f(v)} мм (ls больше на ${f(v - (base.hook || 0))} мм)`, patch: { hook: v } }); return out; },
       transverse: () => {
         const out = [];
         const yes = base.useTransverse === true || base.useTransverse === 'Да';
@@ -1419,10 +1429,10 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
       corner: ['step', 'h', 'concrete', 'overhang'], sp63: ['h', 'concrete', 'overhang', 'transverse'],
       sp63sw: ['h', 'concrete', 'transverse'], allcorners: ['step', 'h', 'concrete', 'overhang', 'transverse'],
       strip: ['step', 'h', 'concrete'], shear: ['step', 'h', 'concrete'],
-      bend: ['bars', 'step', 'h', 'rebarClass'], anchor: ['lan', 'bars', 'overhang', 'step', 'h'],
+      bend: ['bars', 'step', 'h', 'rebarClass'], anchor: ['hook', 'lan', 'bars', 'overhang', 'step', 'h'],
       localcol: ['concrete', 'plate'], localpile: ['concrete', 'overhang'],
     };
-    const NAMES = { step: 'Ступень', h: 'Толщина', concrete: 'Бетон', overhang: 'Габариты (свес)', colsize: 'Колонна', plate: 'Плита базы', lan: 'Анкеровка', transverse: 'Поперечная арматура', bars: 'Армирование', rebarClass: 'Класс арматуры' };
+    const NAMES = { step: 'Ступень', h: 'Толщина', concrete: 'Бетон', overhang: 'Габариты (свес)', colsize: 'Колонна', plate: 'Плита базы', lan: 'Анкеровка', hook: 'Лапки', transverse: 'Поперечная арматура', bars: 'Армирование', rebarClass: 'Класс арматуры' };
     const passes = (r, key) => {
       const s = r.summary.find((q) => q.key === key);
       if (key === 'sp63') { const sw = r.summary.find((q) => q.key === 'sp63sw'); if (sw && sw.pass === true) return true; }
@@ -1684,6 +1694,11 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
       }
     }
 
+    // Лапка: вертикальный участок помещается по высоте плиты (защитный слой снизу и сверху)
+    if (isNum(p.hook) && p.hook > 0 && p.hook > p.h - 2 * p.cover) {
+      warn('hook-high', 'Лапка не помещается по высоте плиты', `Вертикальный участок лапки ${fmtN(p.hook)} мм > h − 2·aт = ${fmtN(p.h - 2 * p.cover)} мм. Уменьшите лапку или примите её наклонной/горизонтальной в верхней зоне.`, ['hook']);
+    }
+
     // Продавливание сваей в итоге — одним методом: о непрошедшей второй проверке и о крайней свае
     if (r.pilePunch && r.pilePunch.method !== 'both') {
       const k3 = (v) => v.toFixed(3).replace('.', ',');
@@ -1713,7 +1728,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     return { errors, warnings, result: errors.length ? null : r };
   }
 
-  const VERSION = '2026-10-20.5'; // должна совпадать с версией страницы и отчёта (index.html, report.js)
+  const VERSION = '2026-10-21.1'; // должна совпадать с версией страницы и отчёта (index.html, report.js)
   return { VERSION, compute, validate, suggest, DEFAULTS, CONCRETE, REBAR, BETA_TABLE, betaOf, meshSteps };
 });
 
@@ -22731,10 +22746,10 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     P(`Момент по грани колонны (ф. (17), (18) Пособия), e_{0} = ${f(p.e0, 0)} мм, и прочность нормального сечения, формула (8.4) при ξ ≤ ξ_{R}:`, { keepNext: true });
     eq(E('M = ΣF_{i}·', pr('x_{i} + e_{0}'), ';   x = ', fr('R_{s}·A_{s}', 'R_{b}·b'), ';   M ≤ M_{ult} = R_{s}·A_{s}·', pr('h_{0} − 0,5·x'), '.'));
     const byP = p.anchorMethod === 'Пособие п. 2.15';
-    P(`Наклонное сечение по моменту по СП 63 п. 8.1.35: N_{s} — по п. 10.3.26, длина анкеровки по ф. (10.1)–(10.3), η_{1} = ${f(p.eta1)}, R_{bt} с γ_{b1} (п. 6.1.12)${r.lanRed ? `, снижение длины анкеровки на ${f(r.lanRed * 100, 0)} % за лапки и обжатие бетона от реакции сваи (п. 10.3.25)` : ''}:`, { keepNext: true });
-    eq(E('l_{an} = ', r.lanRed ? `(1 − ${f(r.lanRed, 2)})·` : '', fr('R_{s}·d_{s}', '4·η_{1}·η_{2}·R_{bt}'), ';   N_{s} = ', fr('R_{s}·A_{s}·l_{s}', 'l_{an}'), ' ≤ R_{s}·A_{s};   M ≤ M_{s} = N_{s}·0,9·h_{0}.'));
+    P(`Наклонное сечение по моменту по СП 63 п. 8.1.35: N_{s} — по п. 10.3.26, базовая длина анкеровки l_{0,an} по ф. (10.1), (10.2), η_{1} = ${f(p.eta1)}, R_{bt} с γ_{b1} (п. 6.1.12); требуемая l_{an} = (1 − δ)·l_{0,an} по ф. (10.3) при A_{s,cal}/A_{s,ef} = 1 (п. 10.3.26), но не менее 0,3·l_{0,an}, 15d_{s} и 200 мм (п. 10.3.25)${r.lanRed ? `; снижение δ = ${f(r.lanRed * 100, 0)} % (не более 30 %) по п. 10.3.25 — за поперечное обжатие бетона реакцией сваи и анкерующие устройства (приваренные поперечные стержни сетки)` : ''}. Фактическая длина l_{s} — по оси стержня от сечения до конца стержня${r.hook ? `: прямой участок за внутренней гранью сваи плюс лапка ${f(r.hook, 0)} мм` : ''}:`, { keepNext: true });
+    eq(E('l_{an} = ', r.lanRed ? `(1 − ${f(r.lanRed, 2)})·` : '', fr('R_{s}·d_{s}', '4·η_{1}·η_{2}·R_{bt}'), ' ≥ 0,3·l_{0,an}, 15d_{s}, 200 мм;   N_{s} = ', fr('R_{s}·A_{s}·l_{s}', 'l_{an}'), ' ≤ R_{s}·A_{s};   M ≤ M_{s} = N_{s}·0,9·h_{0}.'));
     P('По Пособию п. 2.15 прочность обеспечена, если поперечная сила не менее чем в 1,25 раза меньше Q по ф. (15) при h_{0}/c = 0,5, т. е. Q ≤ 0,6·R_{bt}·b·h_{0}; иначе проверяется анкеровка у крайнего ряда свай по ф. (27)–(31):', { keepNext: true });
-    eq(E('M_{sec} = ', pr('c + ', fr('d_{sv}', '2')), '·ΣF_{i};   A_{s,cal} = ', fr('M_{sec}', '0,9·h_{0}·R_{s}'), ';   l_{an} = ', pr('0,5·', fr('R_{s}', 'R_{b}'), '·', fr('A_{s,cal}', 'A_{s,fac}'), ' + 8'), '·d ≥ 12d;   l_{fac} = d_{sv} + l_{0} − a ≥ l_{an}.'));
+    eq(E('M_{sec} = ', pr('c + ', fr('d_{sv}', '2')), '·ΣF_{i};   A_{s,cal} = ', fr('M_{sec}', '0,9·h_{0}·R_{s}'), ';   l_{an} = ', pr('0,5·', fr('R_{s}', 'R_{b}'), '·', fr('A_{s,cal}', 'A_{s,fac}'), ' + 8'), `·d ≥ 12d;   l_{fac} = d_{sv} + l_{0} − a${r.hook ? ' + l_{лап}' : ''} ≥ l_{an}.`));
     const rowsOf = (se) => [
       ['Поперечная сила Q, кН', ...se.map((q) => fF(q.Q, 1))],
       ['Q_{ult} = 0,3·R_{b}·b·h_{0}, кН', ...se.map((q) => fF(q.Qstrip, 1))],
@@ -22784,7 +22799,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     eq(E(`M_{ult} = ${fR(RsCm)}·${f(sM.As)}·`, pr(`${f(sM.h0)} − 0,5·${f(sM.x)}`), `·10^{−2} = ${fF(sM.Mult, 1)} кН·м;   K = `, fr('M', 'M_{ult}'), ' = ', fr(fF(sM.M, 1), fF(sM.Mult, 1)), ` = ${k3(sM.Kbend)}.`));
     P(`Наклонное сечение по моменту по СП 63, определяющее — «${sA.name}»:`, { keepNext: true });
     const dsA = sA.name.includes('X') ? p.dsx : p.dsy;
-    eq(E('l_{an} = ', r.lanRed ? `(1 − ${f(r.lanRed, 2)})·` : '', fr(`${f(r.Rs, 0)}·${f(dsA, 0)}`, `4·${f(p.eta1)}·${dsA > 32 ? '0,9' : '1'}·${f(r.Rbt)}`), ` = ${f(sA.lan, 0)} мм;   l_{s} = ${f(sA.ls, 0)} мм;`), true);
+    eq(E('l_{0,an} = ', fr(`${f(r.Rs, 0)}·${f(dsA, 0)}`, `4·${f(p.eta1)}·${dsA > 32 ? '0,9' : '1'}·${f(r.Rbt)}`), ` = ${f(sA.l0an, 0)} мм;   l_{an} = max(${r.lanRed ? `(1 − ${f(r.lanRed, 2)})·${f(sA.l0an, 0)}` : f(sA.l0an, 0)}; ${f(sA.lanMin, 0)}) = ${f(sA.lan, 0)} мм;`), true);
+    eq(E(`l_{s} = ${sA.hook ? `${f(sA.lsStraight, 0)} + ${f(sA.hook, 0)} = ` : ''}${f(sA.ls, 0)} мм${sA.hook ? ' (прямой участок + лапка)' : ''};`), true);
     eq(E('N_{s} = ', fr(`${fR(RsCm)}·${f(sA.As)}·${f(Math.max(0, Math.min(sA.ls, sA.lan)), 0)}`, f(sA.lan, 0)), ` = ${fF(sA.Ns, 1)} кН;   M_{s} = ${fF(sA.Ns, 1)}·0,9·${f(sA.h0)}·10^{−2} = ${fF(sA.Ms, 1)} кН·м;`), true);
     eq(E('K = ', fr('M', 'M_{s}'), ' = ', fr(fF(sA.M, 1), fF(sA.Ms, 1)), ` = ${k3(sA.KMs)}.`));
     const sP = se.reduce((a, b) => (b.anchorP.K > a.anchorP.K ? b : a));
@@ -22796,7 +22812,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       const dsP = sP.name.includes('X') ? p.dsx : p.dsy;
       eq(`Q = ${fF(sP.Q, 1)} кН > 0,6·R_{bt}·b·h_{0} = ${fF(ap.QlimP, 1)} кН — требуется проверка анкеровки;`, true);
       eq(E(`M_{sec} = (${f(ap.cExt, 0)} + ${f(r.bp, 0)}/2)·${fF(ap.Fext, 1)}·10^{−3} = ${fF(ap.Msec, 1)} кН·м;   A_{s,cal} = `, fr(`${fF(ap.Msec, 1)}·10^{2}`, `0,9·${f(sP.h0)}·${fR(RsCm)}`), ` = ${f(ap.AsCal)} см^{2};`), true);
-      eq(E('l_{an} = ', pr(`0,5·`, fr(f(r.Rs, 0), f(r.Rb)), '·', fr(f(ap.AsCal), f(sP.As)), ' + 8'), `·${f(dsP, 0)} = ${f(ap.lanP, 0)} мм (не менее 12d);   l_{fac} = ${f(r.bp, 0)} + ${f(ap.l0, 0)} − ${f(p.cover, 0)} = ${f(ap.lfac, 0)} мм;`), true);
+      eq(E('l_{an} = ', pr(`0,5·`, fr(f(r.Rs, 0), f(r.Rb)), '·', fr(f(ap.AsCal), f(sP.As)), ' + 8'), `·${f(dsP, 0)} = ${f(ap.lanP, 0)} мм (не менее 12d);   l_{fac} = ${f(r.bp, 0)} + ${f(ap.l0, 0)} − ${f(p.cover, 0)}${ap.hook ? ` + ${f(ap.hook, 0)}` : ''} = ${f(ap.lfac, 0)} мм;`), true);
       eq(E('K = ', fr('l_{an}', 'l_{fac}'), ' = ', fr(f(ap.lanP, 0), f(ap.lfac, 0)), ` = ${k3(ap.K)}.`));
     } else {
       P('Сваи крайнего ряда заходят под колонну — анкеровку проверьте вручную.');
@@ -22945,7 +22961,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     });
   }
 
-  const VERSION = '2026-10-20.5';
+  const VERSION = '2026-10-21.1';
   return { VERSION, create, createMany, build, omml, injectMath, FONT };
 });
 
@@ -23721,8 +23737,14 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       eq('K = M/M_{ult}', `${nF(gM.M, 1)}/${nF(gM.Mult, 1)}`, k3(gM.Kbend))));
     list.push(step(`Анкеровка нижней арматуры (наклонное сечение по моменту) — сечение «${esc(gA.name)}»`,
       P(`Наклонная трещина у грани ряда свай пересекает нижнюю арматуру близко к её концу; арматура может развить усилие только пропорционально длине заделки за трещиной (п. 8.1.35, 10.3.26).`),
-      eq('l_{an} = (1 − δ)·R_{s}·d_{s}/(4·η_{1}·η_{2}·R_{bt})', (() => { const ds = /X/.test(gA.name) ? p.dsx : p.dsy; return `(1 − ${n(r.lanRed || 0, 2)})·${n(r.Rs)}·${n(ds)}/(4·${n(p.eta1, 2)}·${ds > 32 ? '0,9' : '1'}·${n(r.Rbt, 3)})`; })(), `${n(gA.lan, 0)} мм`, `ф. (10.1)–(10.3)${r.lanRed ? `, снижение δ = ${n(r.lanRed * 100, 0)} % по п. 10.3.25` : ''}`),
-      P(`Фактическая заделка от внутренней грани ближайшего ряда свай до торца стержня ${F(`l_{s} = ${n(gA.ls, 0)} мм`)}.`),
+      eq('l_{0,an} = R_{s}·d_{s}/(4·η_{1}·η_{2}·R_{bt})', `${n(r.Rs)}·${n(gA.ds)}/(4·${n(p.eta1, 2)}·${gA.ds > 32 ? '0,9' : '1'}·${n(r.Rbt, 3)})`, `${n(gA.l0an, 0)} мм`, 'ф. (10.1), (10.2): базовая длина — прямой стержень, полное Rs'),
+      r.lanRed
+        ? P(`Снижение ${F(`δ = ${n(r.lanRed * 100, 0)} %`)} принято проектировщиком (поле «Снижение длины анкеровки lan»). П. 10.3.25 разрешает уменьшать длину анкеровки не более чем на 30 % при наличии поперечного обжатия бетона, анкерующих устройств (приваренные поперечные стержни, загиб концов) или поперечной арматуры. В ростверке основания: стержни нижней сетки над сваей обжаты реакцией сваи; в сварной сетке анкерующим устройством служат приваренные поперечные стержни (у вязаной сетки они в счёт не идут). Если ни того, ни другого нет (вязаная сетка, конец стержня вне зоны обжатия) — задайте δ = 0.`)
+        : P(`Снижение по п. 10.3.25 не применяется (δ = 0): длина анкеровки — полная базовая. Допускается снижение до 30 % при поперечном обжатии (реакция сваи), приваренных поперечных стержнях или загибе концов.`),
+      eq('l_{an} = max((1 − δ)·l_{0,an}; 0,3·l_{0,an}; 15·d_{s}; 200 мм)', `max(${n((1 - (r.lanRed || 0)) * gA.l0an, 0)}; ${n(0.3 * gA.l0an, 0)}; ${n(15 * gA.ds, 0)}; 200)`, `${n(gA.lan, 0)} мм`, `ф. (10.3), п. 10.3.25${gA.lan > (1 - (r.lanRed || 0)) * gA.l0an + 0.5 ? ' — определил минимум' : ''}`),
+      gA.hook > 0
+        ? P(`Фактическая длина анкеровки измеряется по оси стержня от сечения (внутренняя грань ближайшего ряда свай) до его конца (п. 10.3.26), поэтому лапка входит в неё целиком: прямой участок за гранью сваи ${F(`${n(gA.lsStraight, 0)} мм`)} + вертикальная лапка ${F(`l_{лап} = ${n(gA.hook, 0)} мм`)} → ${F(`l_{s} = ${n(gA.ls, 0)} мм`)}. Лапка увеличивает фактическую ${F('l_{s}')}, а δ уменьшает требуемую ${F('l_{an}')} — это разные стороны условия. Основание для δ в ростверке — обжатие реакцией сваи и приваренные поперечные стержни; если δ обосновано только загибом концов, консервативнее принять δ = 0, чтобы не учитывать лапку дважды.`)
+        : P(`Фактическая длина анкеровки — прямой участок от внутренней грани ближайшего ряда свай до торца стержня (за вычетом защитного слоя): ${F(`l_{s} = ${n(gA.ls, 0)} мм`)}. Лапок нет (поле «Лапка на концах нижних стержней» = 0). Если ${F('l_{s} < l_{an}')}, загните концы стержней вверх: длина лапки по оси добавится к ${F('l_{s}')}.`),
       eq('N_{s} = R_{s}·A_{s}·l_{s}/l_{an}', `${nR(r.Rs / 10, 1)}·${n(gA.As, 2)}·${n(Math.min(1, Math.max(0, gA.ls / gA.lan)), 3)}`, `${nF(gA.Ns, 1)} кН`, 'п. 10.3.26'),
       eq('M_{s} = N_{s}·z_{s}, z_{s} = 0,9·h_{0}', `${nF(gA.Ns, 1)}·0,9·${n(gA.h0)}·10^{−2}`, `${nF(gA.Ms, 1)} кН·м`, 'ф. (8.64)'),
       eq('K = M/M_{s}', `${nF(gA.M, 1)}/${nF(gA.Ms, 1)}`, k3(gA.KMs)),
@@ -23807,7 +23829,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   'use strict';
   const C = window.RostverkCalc;
   // Страница и подключаемые файлы ядра должны быть одной версии: иначе часть расчёта не отобразится
-  const APP_VERSION = '2026-10-20.5';
+  const APP_VERSION = '2026-10-21.1';
   function banner(msg) {
     let el = document.getElementById('appBanner');
     if (!el) {
@@ -23898,7 +23920,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       { k: 'cover', cell: 'C65', label: 'Защитный слой до торца стержней сетки', sym: 'aт', u: 'мм' },
       { k: 'meshEdge', label: 'От грани ростверка до оси крайнего стержня сетки, не менее', sym: 'aб', u: 'мм', optional: true, autoFrom: 'meshEdgeAuto', autoLabel: 'слой + d/2', autoNote: 'защитный слой + d/2', hint: 'Наименьшая привязка для раскладки сетки: фактическая подбирается так, чтобы шаги были кратны модулю. По умолчанию — защитный слой + d/2; очистите поле, чтобы вернуть. Защитный слой — не менее 40 мм и d (СП 63 табл. 10.1)' },
       { k: 'meshModule', label: 'Шаг стержней нижней сетки', opts: [['Кратный 50 мм', 50], ['Кратный 100 мм', 100], ['Равномерно, без округления', 0]], hint: 'Шаги кратны модулю; остаток уходит в привязки крайних стержней, а если он велик — в доборные шаги у краёв (на модуль меньше основного). «Равномерно» — привязка точно как задана, шаг дробный' },
-      { k: 'lanReduction', label: 'Снижение длины анкеровки lan', opts: [['Нет', 0], ['10 %', 0.1], ['20 %', 0.2], ['30 % (максимум)', 0.3]], hint: 'СП 63 п. 10.3.25: за загиб концов (лапки) и обжатие бетона от реакции сваи — не более 30 %' },
+      { k: 'hook', label: 'Лапка на концах нижних стержней (вертикальный участок)', sym: 'lлап', u: 'мм', hint: '0 — прямые концы. Длина анкеровки ls считается по оси стержня до его конца (СП 63 п. 10.3.26): прямой участок за гранью сваи + лапка. Лапка ≤ h − 2·aт' },
+      { k: 'lanReduction', label: 'Снижение длины анкеровки lan (δ)', opts: [['Нет', 0], ['10 %', 0.1], ['20 %', 0.2], ['30 % (максимум)', 0.3]], hint: 'СП 63 п. 10.3.25: lan = (1 − δ)·l0,an, δ ≤ 30 % — за поперечную арматуру, анкерующие устройства (приварка поперечных стержней, загиб концов) и поперечное обжатие бетона (над сваей — её реакцией). Величину δ норма не задаёт — её назначает проектировщик. Не менее 0,3·l0,an, 15ds и 200 мм' },
       { k: 'anchorMethod', label: 'Проверка наклонного сечения по моменту', opts: ['СП 63 п. 8.1.35', 'Пособие п. 2.15'], hint: 'В итог входит выбранный метод, второй показывается для сравнения. СП 63: полный момент по грани колонны и полная длина анкеровки; Пособие: при Q ≤ 0,6·Rbt·b·h0 — обеспечена, иначе анкеровка у крайнего ряда свай по ф. (27)–(31)' },
       { k: 'eta1', cell: 'C67', label: 'Коэффициент сцепления арматуры с бетоном', sym: 'η1', hint: 'СП 63 п. 10.3.24: 2,5 — горячекатаная периодического профиля' },
     ] },
@@ -24621,8 +24644,12 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       ['Относительная высота сжатой зоны ξ = x/h0', 'ξ', se.map((v) => v.xi), ''],
       ['Предельный момент Mult, ф. (8.4)', 'Mult', se.map((v) => v.Mult), 'кН·м'],
       ['Коэффициент использования (изгиб)', 'M/Mult', se.map((v) => v.Kbend), '', { key: true, k: true }],
-      ['СП 63 п. 8.1.35: ls — от внутренней грани ближайшего ряда свай до торца стержня', 'ls', se.map((v) => v.ls), 'мм'],
-      [`lan = ${r.lanRed ? `(1 − ${fmt(r.lanRed, 2)})·` : ''}Rs·ds/(4·η1·η2·Rbt), Rbt с γb1 (п. 10.3.24, 10.3.25)`, 'lan', se.map((v) => v.lan), 'мм'],
+      ['Прямой участок стержня от внутренней грани ближайшего ряда свай до торца', 'ls,пр', se.map((v) => v.lsStraight), 'мм'],
+      ['Лапка — вертикальный участок на конце стержня', 'lлап', se.map((v) => v.hook), 'мм'],
+      ['СП 63 п. 10.3.26: ls = ls,пр + lлап — по оси стержня до его конца', 'ls', se.map((v) => v.ls), 'мм'],
+      ['Базовая длина анкеровки l0,an = Rs·ds/(4·η1·η2·Rbt), ф. (10.1)', 'l0,an', se.map((v) => v.l0an), 'мм'],
+      ['Минимум: max(0,3·l0,an; 15ds; 200 мм), п. 10.3.25', 'lan,min', se.map((v) => v.lanMin), 'мм'],
+      [`lan = max(${r.lanRed ? `(1 − ${fmt(r.lanRed, 2)})·` : ''}l0,an; lan,min), δ = ${fmt((r.lanRed || 0) * 100, 0)} % (п. 10.3.25)`, 'lan', se.map((v) => v.lan), 'мм'],
       ['Усилие в арматуре Ns = Rs·As·ls/lan, п. 10.3.26', 'Ns', se.map((v) => v.Ns), 'кН'],
       ['Момент, воспринимаемый арматурой Ms = Ns·0,9·h0', 'Ms', se.map((v) => v.Ms), 'кН·м'],
       ['K по СП 63 (M/Ms)', 'M/Ms', se.map((v) => v.KMs), '', { key: true, k: true }],
@@ -24631,7 +24658,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       ['Msec = (c + dsv/2)·ΣFi крайнего ряда, ф. (27)', 'Msec', se.map((v) => (isNum(v.anchorP.Msec) ? v.anchorP.Msec : '—')), 'кН·м'],
       ['As,cal = Msec/(0,9·h0·Rs), ф. (28)', 'As,cal', se.map((v) => (isNum(v.anchorP.AsCal) ? v.anchorP.AsCal : '—')), 'см²'],
       ['lan = (0,5·Rs/Rb·As,cal/As,fac + 8)·d ≥ 12d, ф. (29)', 'lan', se.map((v) => (isNum(v.anchorP.lanP) ? v.anchorP.lanP : '—')), 'мм'],
-      ['lfac = dsv + l0 − a, ф. (31)', 'lfac', se.map((v) => (isNum(v.anchorP.lfac) ? v.anchorP.lfac : '—')), 'мм'],
+      [`lfac = dsv + l0 − a${r.hook ? ' + lлап' : ''}, ф. (31)`, 'lfac', se.map((v) => (isNum(v.anchorP.lfac) ? v.anchorP.lfac : '—')), 'мм'],
       ['K по Пособию (lan/lfac или Q/Qlim)', '', se.map((v) => v.anchorP.K), '', { key: true, k: true }],
       ['αm = M/(Rb·b·h0²)', 'αm', se.map((v) => v.alphaM), ''],
       ['Требуемая площадь арматуры', 'As,тр', se.map((v) => (v.AsReq === null ? 'увеличить h' : v.AsReq)), 'см²'],
@@ -24710,8 +24737,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       ${row('Статус документа', 'Действующий свод правил', 'Пособие к СНиП 2.03.01-84 — рекомендательный, справочный документ')}
       ${row('Когда проверка не нужна', 'Выполняется всегда', `Если Q ≤ 0,6·Rbt·b·h0 (Q в 1,25 раза меньше Qb по ф. (15) при h0/c = 0,5): Q = ${n(ps.Q, 1)} кН ${ps.needP ? '>' : '≤'} ${n(ps.QlimP, 1)} кН — ${ps.needP ? 'проверка нужна' : 'проверка не нужна'}`)}
       ${row('Расчётный момент', `Полный момент по грани колонны M = ΣFi·(xi + e0) = ${n(sp.M, 1)} кН·м`, posAnchor ? `Момент в сечении у крайнего ряда свай Msec = (c + dsv/2)·ΣFi = ${n(ps.Msec, 1)} кН·м` : '—')}
-      ${row('Длина анкеровки', `Базовая по сцеплению с бетоном, ф. (10.1)–(10.3): lan = ${n(sp.lan, 0)} мм${sp.lanRed ? ` (со снижением на ${n(sp.lanRed * 100, 0)} % по п. 10.3.25)` : ''} — не зависит от загрузки арматуры`, posAnchor ? `По старой формуле СНиП: lan = (0,5·Rs/Rb·As,cal/As,fac + 8)·d ≥ 12d = ${n(ps.lanP, 0)} мм — уменьшается при недогруженной арматуре (As,cal = ${n(ps.AsCal, 2)} из ${n(ps.As, 2)} см²)` : '—')}
-      ${row('Фактическая длина заделки', `ls — от внутренней грани сваи до торца стержня: ${n(sp.ls, 0)} мм`, posAnchor ? `lfac = dsv + l0 − a = ${n(ps.lfac, 0)} мм` : '—')}
+      ${row('Длина анкеровки', `По сцеплению с бетоном, ф. (10.1)–(10.3): l0,an = ${n(sp.l0an, 0)} мм; ${sp.lanRed ? `со снижением δ = ${n(sp.lanRed * 100, 0)} % (п. 10.3.25) — ${n((1 - sp.lanRed) * sp.l0an, 0)} мм, ` : 'без снижения (δ = 0), '}но не менее max(0,3·l0,an; 15ds; 200) = ${n(sp.lanMin, 0)} мм → lan = ${n(sp.lan, 0)} мм — не зависит от загрузки арматуры`, posAnchor ? `По старой формуле СНиП: lan = (0,5·Rs/Rb·As,cal/As,fac + 8)·d ≥ 12d = ${n(ps.lanP, 0)} мм — уменьшается при недогруженной арматуре (As,cal = ${n(ps.AsCal, 2)} из ${n(ps.As, 2)} см²)` : '—')}
+      ${row('Фактическая длина заделки', sp.hook ? `ls — по оси стержня от внутренней грани сваи до конца: прямой участок ${n(sp.lsStraight, 0)} + лапка ${n(sp.hook, 0)} = ${n(sp.ls, 0)} мм (п. 10.3.26)` : `ls — от внутренней грани сваи до торца стержня (прямые концы): ${n(sp.ls, 0)} мм`, posAnchor ? `lfac = dsv + l0 − a${ps.hook ? ` + лапка ${n(ps.hook, 0)}` : ''} = ${n(ps.lfac, 0)} мм` : '—')}
       ${row('Условие', `M ≤ Ms = Rs·As·(ls/lan)·0,9·h0 = ${n(sp.Ms, 1)} кН·м`, posAnchor ? 'lan ≤ lfac' : 'Q ≤ 0,6·Rbt·b·h0')}
       ${row('Определяющее сечение', esc(sp.sec), esc(ps.sec))}
       ${row('Результат', kCell(sp.K), kCell(ps.K))}
