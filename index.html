@@ -378,6 +378,7 @@ dialog.issues .toolbar { margin-top: 16px; justify-content: flex-end; }
   <div class="toolbar">
     <span class="seg" id="unitsSeg" role="group" aria-label="Единицы сил" title="Единицы сил и моментов: 1 тс = 10 кН"><button type="button" data-units="кН">кН</button><button type="button" data-units="тс">тс</button></span>
     <button class="btn primary" id="wordBtn" type="button">Отчёт Word по ростверку</button>
+    <button class="btn" id="cmpBtn" type="button" title="Файл HTML: каждая проверка — расчёт по Пособию и по СП 63 рядом, с формулами и схемами; печатается в PDF">Пособие ↔ СП 63</button>
     <button class="btn" id="manyBtn" type="button">Сводный отчёт…</button>
     <label class="btn" for="xlsxFile">Загрузить из Excel-шаблона…</label>
     <input type="file" id="xlsxFile" accept=".xlsx,.xlsm,.xls" hidden>
@@ -1761,7 +1762,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     return { errors, warnings, result: errors.length ? null : r };
   }
 
-  const VERSION = '2026-10-22.1'; // должна совпадать с версией страницы и отчёта (index.html, report.js)
+  const VERSION = '2026-10-22.2'; // должна совпадать с версией страницы и отчёта (index.html, report.js)
   return { VERSION, compute, validate, suggest, DEFAULTS, CONCRETE, REBAR, BETA_TABLE, betaOf, meshSteps };
 });
 
@@ -2217,8 +2218,107 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     return { svg: s.out(H, 'hatch-anc', 'Схема анкеровки нижней арматуры с лапкой и длинами анкеровки'), caption, ok };
   }
 
+  // ---------- Продавливание колонной по СП 63: контур на 0,5·h0, основание пирамиды под 45° ----------
+  function columnSp63Scheme(r) {
+    const p = r.input, cc = r.colSp63;
+    if (!cc) return null;
+    const k = (W - ML - MR) / p.l;
+    const s = Svg();
+    const X = (x) => ML + Math.min(Math.max(x, -ML / k + 4 / k), p.l + (MR - 4) / k) * k;
+    const colL = r.xcol - p.bcol / 2, colR = r.xcol + p.bcol / 2;
+    const aBot = p.h - r.h0, st = r.step, H = r.Htot, h0 = cc.h0;
+    const slabTop = 92 + (st ? st.H * k : 0), slabBot = slabTop + p.h * k;
+    const Zs = (z) => slabBot - z * k;
+    const colBot = Zs(H);
+    s.text(W / 2, 12, 'Разрез', { cls: 'sd-h' });
+    columnStub(s, X, colBot - 32, colBot, colL, colR);
+    s.line(X(r.xcol), slabTop - 40, X(r.xcol), slabBot + 34, 'sd-axis');
+    const xsPiles = uniq(r.pileRows.map((q) => q.x));
+    xsPiles.forEach((x) => pileStub(s, X, slabBot, x, p.pileSize, 'sd-pile-s'));
+    s.rect(X(0), slabTop, X(p.l), slabBot, 'sd-main sd-fill');
+    if (st) s.rect(X(r.xcol - st.L / 2), colBot, X(r.xcol + st.L / 2), slabTop + 0.8, 'sd-main sd-fill');
+    s.line(X(Math.min(p.cover, p.l / 10)), Zs(aBot), X(p.l - Math.min(p.cover, p.l / 10)), Zs(aBot), 'sd-rebar');
+    // Грани пирамиды под 45° до уровня арматуры; контур — на половине высоты (0,5·h0 от граней)
+    const bL = r.xcol - cc.bx / 2 - h0, bR = r.xcol + cc.bx / 2 + h0;
+    s.line(X(colL), colBot, X(bL), Zs(aBot), 'sd-red');
+    s.line(X(colR), colBot, X(bR), Zs(aBot), 'sd-red');
+    const zMid = aBot + h0 / 2;
+    for (const x of [colL - h0 / 2, colR + h0 / 2]) {
+      s.line(X(x), colBot - 4, X(x), Zs(aBot) + 4, 'sd-red-thin');
+      s.add(`<circle cx="${X(x)}" cy="${Zs(zMid)}" r="2.6" class="sd-dot"/>`);
+    }
+    // Размеры сверху: основание пирамиды и контур
+    const top = [bL, colL - h0 / 2, colL, colR, colR + h0 / 2, bR];
+    const lab = (a, b) => (Math.abs(a - colL) < 1 && Math.abs(b - colR) < 1 ? `bcol=${num(p.bcol)}` : Math.abs(b - a - h0 / 2) < 1 ? '0,5h0' : num(b - a));
+    s.chainH(top.map(X), top.slice(0, -1).map((a, i) => lab(a, top[i + 1])), 48, colBot - 2);
+    const xr = X(p.l) + 16;
+    s.chainV([Zs(0), Zs(aBot), Zs(H)], [num(aBot), `h0=${num(h0)}`], xr, X(p.l) + 2);
+    s.dimH(X(bL), X(bR), slabBot + 50, `основание b+2h0 = ${num(cc.bx + 2 * h0)}`, slabBot + 30);
+    // План: основание пирамиды, контур, сваи (вне основания — учитываются в F)
+    const planTop = slabBot + 120, planBot = planTop + p.b * k;
+    const Y = (y) => planBot - Math.min(Math.max(y, -ML / k + 4 / k), p.b + 40 / k) * k;
+    s.text(W / 2, planTop - 38, 'План', { cls: 'sd-h' });
+    s.rect(X(0), Y(0), X(p.l), Y(p.b), 'sd-main sd-fill');
+    const inBase = (q) => Math.abs(q.x - r.xcol) <= cc.bx / 2 + h0 && Math.abs(q.y - r.ycol) <= cc.by / 2 + h0;
+    r.pileRows.forEach((q) => {
+      const cls = inBase(q) ? 'sd-pile-o' : 'sd-pile sd-pile-hot';
+      if (p.pileShape === 'Круглая') s.add(`<circle cx="${X(q.x)}" cy="${Y(q.y)}" r="${p.pileSize / 2 * k}" class="${cls}"/>`);
+      else s.rect(X(q.x - p.pileSize / 2), Y(q.y - p.pileSize / 2), X(q.x + p.pileSize / 2), Y(q.y + p.pileSize / 2), cls);
+    });
+    const colB = r.ycol - p.hcol / 2, colT = r.ycol + p.hcol / 2;
+    s.rect(X(colL), Y(colB), X(colR), Y(colT), 'sd-main', 'style="fill:url(#hatch-c63)"');
+    s.rect(X(r.xcol - cc.bx / 2 - h0), Y(r.ycol - cc.by / 2 - h0), X(r.xcol + cc.bx / 2 + h0), Y(r.ycol + cc.by / 2 + h0), 'sd-base');
+    s.rect(X(colL - h0 / 2), Y(colB - h0 / 2), X(colR + h0 / 2), Y(colT + h0 / 2), 'sd-red sd-nofill');
+    s.dimH(X(0), X(p.l), planBot + 22, `l=${num(p.l)}`, planBot + 2);
+    s.dimV(Y(0), Y(p.b), X(p.l) + 18, `b=${num(p.b)}`, X(p.l) + 2);
+    const caption = `СП 63 п. 8.1.46: расчётный контур (красный пунктир) — на 0,5·h0 от граней колонны, ${num(cc.Lx * 10)} × ${num(cc.Ly * 10)} мм, u = ${num(cc.u * 10)} мм; грани пирамиды — под 45°, основание ${num(cc.bx + 2 * h0)} × ${num(cc.by + 2 * h0)} мм (серый пунктир). Сваи вне основания (выделены): ${cc.nOut}, F = ${num(cc.F)} кН; сваи внутри основания передают нагрузку напрямую и в F не входят.`;
+    return { svg: s.out(planBot + 40, 'hatch-c63', 'Схема продавливания колонной по СП 63: разрез и план'), caption };
+  }
+
+  // ---------- Наклонные сечения по поперечной силе: от внутренней грани каждого ряда свай к грани колонны ----------
+  function shearScheme(r) {
+    const p = r.input;
+    if (!r.sections || !r.sections.length) return null;
+    const sc = r.sections.reduce((a, b) => (b.KQb > a.KQb ? b : a));
+    if (!isFinite(sc.edgeDist) || !sc.shearRows || !(sc.Q > 0)) return null;
+    const L = sc.edgeDist, dsv = r.bp, h0 = sc.h0 * 10;
+    const st = r.step && sc.at === 'col' ? r.step : null;
+    const Ht = st ? r.Htot : p.h, aBar = Ht - h0;
+    const stepExt = st ? (sc.axis === 'x' ? (st.L - p.bcol) / 2 : (st.B - p.hcol) / 2) : 0;
+    let uMin = -180;
+    const uMax = L + 20;
+    const kOf = () => Math.min((W - ML - MR) / (uMax - uMin), 0.6, 240 / Ht);
+    if (-uMin * kOf() < 60) uMin = -60 / kOf();
+    const k = kOf(), X = (u) => ML + (u - uMin) * k;
+    const s = Svg();
+    s.text(W / 2, 12, `Наклонные сечения — ${sc.name}`, { cls: 'sd-h' });
+    const top = 84, slabTop = top + (Ht - p.h) * k, slabBot = top + Ht * k, Z = (z) => slabBot - z * k;
+    s.line(X(0), top - 30, X(0), top, 'sd-main');
+    s.breakH(X(uMin), X(0), top - 30);
+    s.text((X(uMin) + X(0)) / 2, top - 8, sc.at === 'step' ? 'ступень' : 'колонна', { cls: 'sd-t sd-muted' });
+    s.rect(X(uMin), slabTop, X(L), slabBot, 'sd-main sd-fill');
+    if (st && stepExt > 0) s.rect(X(uMin), top, X(Math.min(stepExt, L)), slabTop + 0.8, 'sd-main sd-fill');
+    s.line(X(uMin), slabTop - 6, X(uMin), slabBot + 6, 'sd-thin');
+    const rel = [];
+    for (const q of r.pileRows) { const u = sc.dir * (q[sc.axis] - sc.coord); if (u > 0 && !rel.some((v) => Math.abs(v - u) < 1)) rel.push(u); }
+    rel.forEach((u) => pileStub(s, X, slabBot, u, dsv, 'sd-pile-s'));
+    s.line(X(uMin), Z(aBar), X(L - p.cover), Z(aBar), 'sd-rebar');
+    const gov = sc.shearGov;
+    sc.shearRows.forEach((row, i) => {
+      s.line(X(row.c), slabBot, X(0), top, row === gov ? 'sd-red' : 'sd-red-thin');
+      s.text(X(row.c) + 4, slabBot - 6, `${i + 1}`, { anchor: 'start', cls: 'sd-t sd-bad' });
+    });
+    s.dimH(X(0), X(L), top - 44, `${num(L)} — от грани до края`, top - 2);
+    const xr = X(L) + 14;
+    s.chainV([Z(0), Z(aBar), Z(Ht)], [num(aBar), `h0=${num(h0)}`], xr, X(L) + 2);
+    let y = slabBot + 46;
+    sc.shearRows.forEach((row, i) => { s.dimH(X(0), X(row.c), y, `c${sc.shearRows.length > 1 ? i + 1 : ''}=${num(row.c)}`, slabBot + 2); y += 22; });
+    const caption = `Наклонные сечения по поперечной силе (${sc.name}): от внутренней грани ${sc.shearRows.length > 1 ? 'каждого ряда свай' : 'ряда свай'} к грани ${sc.at === 'step' ? 'ступени' : 'колонны'}; c — длина проекции сечения, h0 = ${num(h0)} мм. Определяющее сечение — сплошной красный пунктир.`;
+    return { svg: s.out(y + 4, 'hatch-sh', 'Схема наклонных сечений по поперечной силе'), caption };
+  }
+
   function render(r) {
-    return { column: columnScheme(r), corner: cornerScheme(r), mesh: meshScheme(r), anchor: anchorScheme(r) };
+    return { column: columnScheme(r), corner: cornerScheme(r), mesh: meshScheme(r), anchor: anchorScheme(r), colSp63: columnSp63Scheme(r), shear: shearScheme(r) };
   }
 
   return { render };
@@ -23112,7 +23212,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     });
   }
 
-  const VERSION = '2026-10-22.1';
+  const VERSION = '2026-10-22.2';
   return { VERSION, create, createMany, build, omml, injectMath, FONT };
 });
 
@@ -23983,7 +24083,375 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   return {
     sp63: conv(sp63), colPos: conv(colPos), colSp63: conv(colSp63), corner: conv(corner), sections: conv(sections), local: conv(local), geo: conv(geo),
     setUnits, n, k3,
+    // Разметка и форматирование — для сравнительного файла (compare.js)
+    h: { F, P, note, eq, step, steps, verdict, tbl, esc, math, nF, nR, sg, sgF, kLine, materials, isTs: () => UT },
   };
+});
+
+</script>
+<script>
+// Сравнительный файл: расчёт по Пособию по ростверкам и по СП 63 рядом — по каждой проверке
+// формулы с подстановкой, схемы и пояснение, чем различаются подходы. Результат — автономный HTML.
+(function (root, factory) {
+  if (typeof module === 'object' && module.exports) module.exports = factory(require('./calc.js'), require('./schemes.js'), require('./explain.js'), require('./norms.js'));
+  else root.RostverkCompare = factory(root.RostverkCalc, root.RostverkSchemes, root.RostverkExplain, root.RostverkNorms);
+})(typeof self !== 'undefined' ? self : this, function (C, S, X, N) {
+  'use strict';
+
+  const H = X.h;
+  const { F, P, note, eq, step, steps, verdict, tbl, esc, nF, nR } = H;
+  const n = X.n, k3 = X.k3;
+  const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
+  const U = () => (H.isTs() ? 'тс' : 'кН');
+  // «500 кН», «80,1 кН·м» в подписях схем — пересчёт в тс вместе с числом
+  const convKN = (t) => (!H.isTs() ? t : String(t).replace(/(−?\d[\d    ]*(?:,\d+)?)\s?кН/g, (m0, v) => `${n(+v.replace(/[    ]/g, '').replace(',', '.').replace('−', '-') / 10)} тс`));
+  const fig = (o) => (o ? `<figure class="xs-fig cmp-fig">${o.svg}<figcaption>${esc(convKN(o.caption))}</figcaption></figure>` : '');
+  const kSpan = (K) => (isNum(K) ? `<b class="${K > 1 + 1e-9 ? 'kbad' : 'kok'}">${k3(K)}</b>` : '—');
+  const li = (arr) => `<ul>${arr.filter(Boolean).map((x) => `<li>${x}</li>`).join('')}</ul>`;
+
+  // Табл. 2 Пособия: v(θ) — плечо внутренней пары в долях h0 (из текста п. 2.14)
+  function vTable() {
+    const c = (N.CLAUSES || []).find((q) => q.doc === 'pos' && q.num === '2.14');
+    const t = c && c.body.find((b) => b && b.table);
+    if (!t) return null;
+    const pts = [];
+    t.table.slice(1).forEach((row) => { for (let i = 0; i + 1 < row.length; i += 2) { const a = parseFloat(String(row[i]).replace(',', '.')), b = parseFloat(String(row[i + 1]).replace(',', '.')); if (isNum(a) && isNum(b)) pts.push([a, b]); } });
+    return pts.sort((a, b) => a[0] - b[0]);
+  }
+  function vOf(th) {
+    const T = vTable();
+    if (!T || !T.length) return 1 - 0.5 * (1 - Math.sqrt(Math.max(0, 1 - 2 * th))); // ζ = 1 − ξ/2
+    if (th <= T[0][0]) return T[0][1];
+    if (th > T[T.length - 1][0]) return null;
+    for (let i = 1; i < T.length; i++) if (th <= T[i][0]) { const [a, va] = T[i - 1], [b, vb] = T[i]; return va + (vb - va) * (th - a) / (b - a); }
+    return null;
+  }
+
+  // =====================================================================
+  // 1. Продавливание колонной
+  // =====================================================================
+  function column(r, sc) {
+    const Cc = r.column, cc = r.colSp63, v = Cc.governingVariant || (Cc.variants || []).find((q) => q.name === Cc.governing);
+    const FultP = Cc.two ? Cc.two.Fult : v && v.Fult, FperP = Cc.two ? Cc.two.Fper : v && v.Fper;
+    const diff = li([
+      `<b>Расчётная схема.</b> Пособие (пп. 2.2–2.5): грани пирамиды идут от граней колонны к внутренним граням свай; ${F('c')} ограничено ${F('0,4·h_{0} ≤ c ≤ h_{0}')}, и множитель ${F('h_{0}/c')} (от 1 до 2,5) увеличивает несущую способность, когда сваи близко к колонне. СП 63 (п. 8.1.46): контур — на ${F('0,5·h_{0}')} от граней колонны, грани под 45°, ${F('F_{b,ult} = R_{bt}·u·h_{0}')} — положение свай на несущую способность не влияет.`,
+      `<b>Продавливающая сила.</b> Пособие: ${F('F_{per} = 2·∑F_{i}')} — удвоенная сумма реакций свай вне основания пирамиды с наиболее нагруженной стороны (так учитывается момент, п. 2.3). СП 63: ${F('F')} — сумма реакций свай вне основания пирамиды ${F('b + 2·h_{0}')}, момент колонны — отдельным членом ${F('M/M_{b,ult}')} (половина момента, п. 8.1.46).`,
+      r.alpha < 1 ? `<b>Стакан.</b> Пособие снижает силу коэффициентом ${F(`α = ${n(r.alpha, 3)}`)} (часть нагрузки уходит через стенки стакана, ф. (2)); в СП 63 такого коэффициента нет.` : '',
+      `<b>Числа.</b> Несущая способность: Пособие ${F(`F_{ult} = ${nF(FultP, 1)} ${U()}`)}, СП 63 ${F(`F_{b,ult} = ${nF(cc.Fb, 1)} ${U()}`)}. Сила: ${F(`F_{per} = ${nF(FperP, 1)}`)} и ${F(`F = ${nF(cc.F, 1)} ${U()}`)}. K: ${kSpan(Cc.K)} и ${kSpan(cc.K)}.`,
+      cc.F === 0 ? `<b>Почему по СП 63 K = 0.</b> Все сваи стоят в пределах основания пирамиды 45° — нагрузка передаётся на сваи сжатыми подкосами напрямую, срезающей силы по контуру нет. Пособие для таких ростверков продолжает считать пирамиду до граней свай с ограничением ${F('c ≥ 0,4·h_{0}')} — у толстых ростверков с близкими сваями определяющей остаётся проверка по Пособию.` : '',
+    ]);
+    return {
+      key: 'column', title: 'Продавливание колонной', kP: Cc.K, kS: cc.K,
+      left: fig(sc.column) + X.colPos(r), right: fig(sc.colSp63) + X.colSp63(r, cc),
+      diff, why: cc.F === 0 ? 'по СП 63 все сваи в основании пирамиды 45° — продавливания нет' : 'разная пирамида: до граней свай с множителем h0/c (Пособие) и контур 0,5h0 под 45° (СП 63)',
+      inApp: 'обе',
+    };
+  }
+
+  // =====================================================================
+  // 2. Продавливание угловой (крайней) сваей
+  // =====================================================================
+  function pile(r, sc) {
+    const k = r.corner, sp = r.sp63, v = sp.variants && sp.variants[sp.governingIndex];
+    const diff = li([
+      `<b>Расчётная схема.</b> Пособие (п. 2.9): пирамида от внутренних граней сваи к граням колонны; у свободных краёв граней нет — работают две грани, по X и по Y. Несущая способность каждой — через ${F('β')} по табл. 1 от крутизны ${F('h_{01}/c_{0}')}: чем ближе свая к колонне, тем больше β. СП 63 (пп. 8.1.46–8.1.52): контур на ${F('0,5·h_{0}')} вокруг сваи, у краёв — незамкнутый; ${F('F_{b,ult} = R_{bt}·u·h_{0}')} не зависит от расстояния до колонны.`,
+      `<b>Рабочая высота.</b> Пособие — ${F('h_{01}')} от верха сваи (заделка сваи в ростверк уменьшает высоту); СП 63 — ${F('h_{0}')} по уровню рабочей арматуры.`,
+      `<b>Моменты.</b> Пособие моментов не учитывает. СП 63 добавляет ${F('M/M_{b,ult}')}: доля момента в голове сваи и ${F('F·e_{0}')} — смещение центра контура относительно силы (у незамкнутого контура оно всегда есть); моментный член ограничен ${F(`${n(r.input.kLim, 2)}·F/F_{b,ult}`)}.`,
+      k.applicable && v ? `<b>Числа.</b> Несущая способность: Пособие ${F(`F_{ult} = ${nF(k.Fult, 1)} ${U()}`)}, СП 63 ${F(`F_{b,ult} = ${nF(v.Fb, 1)} ${U()}`)} (контур «${esc(v.name)}»). K: ${kSpan(k.K)} и ${kSpan(sp.K)}.` : '',
+      !k.applicable ? `<b>Пособие не применимо:</b> ${esc(k.status)} — проверка только по СП 63.` : '',
+      r.pilePunch ? `<b>В итог приложения:</b> ${esc({ both: 'обе проверки', pos: 'только Пособие', sp: 'только СП 63' }[r.pilePunch.method] || r.pilePunch.method)} (поле «Продавливание сваей в итоге»).` : '',
+    ]);
+    return {
+      key: 'pile', title: 'Продавливание угловой (крайней) сваей', kP: k.applicable ? k.K : null, kS: sp.beam ? null : sp.K,
+      left: fig(sc.corner) + X.corner(r), right: X.sp63(r),
+      diff, why: 'Пособие: две грани и β от h01/c0, без моментов; СП 63: контур 0,5h0 вокруг сваи и моменты, в т. ч. F·e0',
+      inApp: r.pilePunch ? { both: 'обе', pos: 'Пособие', sp: 'СП 63' }[r.pilePunch.method] : 'обе',
+    };
+  }
+
+  // =====================================================================
+  // 3. Поперечная сила (наклонные сечения)
+  // =====================================================================
+  function shear(r, sc) {
+    const RbtCm = r.Rbt / 10;
+    const posRows = (q) => q.shearRows.map((row) => {
+      const hcRaw = q.h0 / Math.max(row.c / 10, 0.1), hc = Math.min(Math.max(hcRaw, 0.4), 5 / 3);
+      const Qb = 1.5 * q.bw * q.h0 * RbtCm * hc;
+      return { ...row, hcRaw, hc, QbP: Qb, KP: row.Q / Qb };
+    });
+    const all = r.sections.map((q) => ({ q, rows: posRows(q) }));
+    const KP = Math.max(...all.map((a) => Math.max(...a.rows.map((x) => x.KP))));
+    const gP = all.reduce((a, b) => (Math.max(...b.rows.map((x) => x.KP)) > Math.max(...a.rows.map((x) => x.KP)) ? b : a));
+    const gS = r.sections.reduce((a, b) => (b.KQb > a.KQb ? b : a));
+    const rP = gP.rows.reduce((a, b) => (b.KP > a.KP ? b : a)), rS = gS.shearGov;
+    const qq = gP.q;
+    const left = verdict(KP, 'Поперечная сила по Пособию', `Определяющее сечение — «${esc(qq.name)}».`) + steps([
+      step('Что проверяем', P(`Наклонное сечение от внутренней грани ряда свай до грани колонны (подколонника, ступени); длина проекции ${F('c')}. Пособие п. 2.10, ф. (15): ${F('Q ≤ 1,5·b·h_{0}·R_{bt}·h_{0}/c')}; ${F('h_{0}/c')} принимается от 0,4 до 1,67 (= 5/3), т. е. ${F('0,6·R_{bt}·b·h_{0} ≤ Q_{b} ≤ 2,5·R_{bt}·b·h_{0}')}. При многорядном расположении свай — сечения у каждого ряда (п. 2.11).`)),
+      step('Сечения у рядов свай', tbl(['Ряд', 'c, мм', 'h_{0}/c → принято', `Q, ${U()}`, `Q_{b}, ${U()}`, 'K'],
+        gP.rows.map((x, i) => [String(i + 1), n(x.c, 0), `${n(x.hcRaw, 3)} → ${n(x.hc, 3)}`, nF(x.Q, 1), nF(x.QbP, 1), `<b>${k3(x.KP)}</b>`]), gP.rows.indexOf(rP))),
+      step(`Определяющее сечение — ряд ${gP.rows.indexOf(rP) + 1}`,
+        eq('Q_{b} = 1,5·b·h_{0}·R_{bt}·h_{0}/c', `1,5·${n(qq.bw, 1)}·${n(qq.h0)}·${nR(RbtCm, 4)}·${n(rP.hc, 3)}`, `${nF(rP.QbP, 1)} ${U()}`, 'Пособие ф. (15)'),
+        eq('K = Q/Q_{b}', `${nF(rP.Q, 1)}/${nF(rP.QbP, 1)}`, k3(rP.KP))),
+    ]);
+    const right = verdict(gS.KQb, 'Поперечная сила по СП 63', `Определяющее сечение — «${esc(gS.name)}».`) + steps([
+      step('Что проверяем', P(`СП 63 п. 8.1.33, ф. (8.56), (8.57): ${F('Q ≤ Q_{b} = 1,5·R_{bt}·b·h_{0}^{2}/C')}, ${F('0,5·R_{bt}·b·h_{0} ≤ Q_{b} ≤ 2,5·R_{bt}·b·h_{0}')}; расчёт — для ряда наклонных сечений по длине элемента, т. е. тоже у каждого ряда свай. Поперечной арматуры в ростверке нет (${F('Q_{sw} = 0')}).`)),
+      step('Сечения у рядов свай', tbl(['Ряд', 'c, мм', `Q, ${U()}`, `Q_{b}, ${U()}`, 'K'],
+        gS.shearRows.map((x, i) => [String(i + 1), n(x.c, 0), nF(x.Q, 1), nF(x.Qb, 1), `<b>${k3(x.K)}</b>`]), gS.shearRows.indexOf(rS))),
+      step(`Определяющее сечение — ряд ${gS.shearRows.indexOf(rS) + 1}`,
+        eq('Q_{b} = 1,5·R_{bt}·b·h_{0}^{2}/C', `1,5·${nR(RbtCm, 4)}·${n(gS.bw, 1)}·${n(gS.h0)}^{2}/${n(Math.max(rS.c / 10, 0.1), 1)}`, `${nF(rS.Qb, 1)} ${U()}`, 'ф. (8.57), с ограничениями'),
+        eq('K = Q/Q_{b}', `${nF(rS.Q, 1)}/${nF(rS.Qb, 1)}`, k3(gS.KQb))),
+    ]);
+    const diff = li([
+      `<b>Формула одна и та же:</b> ${F('1,5·R_{bt}·b·h_{0}^{2}/c')}. Верхний предел совпадает — ${F('2,5·R_{bt}·b·h_{0}')} (короткое сечение, ${F('c ≤ 0,6·h_{0}')}).`,
+      `<b>Нижний предел разный:</b> Пособие — ${F('0,6·R_{bt}·b·h_{0}')} (${F('h_{0}/c ≥ 0,4')}, т. е. ${F('c')} не более ${F('2,5·h_{0}')}), СП 63 — ${F('0,5·R_{bt}·b·h_{0}')} (${F('C')} до ${F('3·h_{0}')}). Для длинных сечений Пособие даёт на 20 % больше.`,
+      `<b>Сечения у каждого ряда свай</b> — явно в Пособии (п. 2.11); в СП 63 — «для ряда наклонных сечений по длине элемента», в приложении — так же у каждого ряда.`,
+      `<b>Числа.</b> K: ${kSpan(KP)} (Пособие) и ${kSpan(gS.KQb)} (СП 63).`,
+    ]);
+    return { key: 'shear', title: 'Поперечная сила — наклонные сечения', kP: KP, kS: gS.KQb, common: fig(sc.shear), left, right, diff,
+      why: Math.abs(KP - gS.KQb) < 1e-6 ? 'результат совпадает: формула одна, различается только нижний предел Qb' : 'формула одна; нижний предел Qb: 0,6 (Пособие) против 0,5 (СП 63)·Rbt·b·h0', inApp: 'СП 63' };
+  }
+
+  // =====================================================================
+  // 4. Изгиб
+  // =====================================================================
+  function bend(r) {
+    const RsCm = r.Rs / 10, RbCm = r.Rb / 10, e0 = r.input.e0;
+    const pos = r.sections.map((q) => {
+      const M = q.M - q.Q * e0 / 1000;
+      const th = M * 100 / (RbCm * q.bwC * q.h0 ** 2);
+      const v = vOf(th);
+      const As = v ? M * 100 / (RsCm * v * q.h0) : null;
+      return { q, M, th, v, As, K: M <= 0 ? 0 : As ? As / q.As : 99 };
+    });
+    const gp = pos.reduce((a, b) => (b.K > a.K ? b : a)), qp = gp.q;
+    const gS = r.sections.reduce((a, b) => (b.Kbend > a.Kbend ? b : a));
+    const left = verdict(gp.K, 'Изгиб по Пособию', `Сечение «${esc(qp.name)}».`) + steps([
+      step('Что проверяем', P(`Сечения по граням колонны (п. 2.12). Момент — от реакций свай по одну сторону сечения, ф. (17), (18): ${F('M = ∑F_{i}·x_{i}')}, ${F('x_{i}')} — от оси сваи до сечения; сваи — в проектном положении. Требуемая арматура — ф. (19)–(26) с коэффициентом ${F('v')} по табл. 2.`)),
+      step('Расчёт',
+        eq('M = ∑F_{i}·x_{i}', '', `${nF(gp.M, 1)} ${U()}·м`, 'Пособие ф. (17)'),
+        eq('θ = M/(R_{b}·b·h_{0}^{2})', `${nF(gp.M, 1)}·10^{2}/(${nR(RbCm, 3)}·${n(qp.bwC, 1)}·${n(qp.h0)}^{2})`, n(gp.th, 4), 'ф. (23)'),
+        gp.v ? eq('v', '', `${n(gp.v, 3)}`, 'табл. 2, интерполяция') : note('θ больше табличного — сечение переармировано, увеличьте h.'),
+        gp.v ? eq('A_{s,тр} = M/(R_{s}·v·h_{0})', `${nF(gp.M, 1)}·10^{2}/(${nR(RsCm, 1)}·${n(gp.v, 3)}·${n(qp.h0)})`, `${n(gp.As, 2)} см^{2}`, 'ф. (19)') : '',
+        gp.v ? eq('K = A_{s,тр}/A_{s}', `${n(gp.As, 2)}/${n(qp.As, 2)}`, k3(gp.K)) : ''),
+    ]);
+    const right = verdict(gS.Kbend, 'Изгиб по СП 63', `Сечение «${esc(gS.name)}».`) + steps([
+      step('Что проверяем', P(`Нормальное сечение по грани колонны, п. 8.1.8 и далее, прямоугольная эпюра в сжатой зоне. Момент — с допуском на смещение свай ${F(`e_{0} = ${n(e0)} мм`)}: ${F('M = ∑F_{i}·(x_{i} + e_{0})')}.`)),
+      step('Расчёт',
+        eq('M = ∑F_{i}·(x_{i} + e_{0})', '', `${nF(gS.M, 1)} ${U()}·м`),
+        eq('x = R_{s}·A_{s}/(R_{b}·b)', `${nR(RsCm, 1)}·${n(gS.As, 2)}/(${nR(RbCm, 3)}·${n(gS.bwC, 1)})`, `${n(gS.x, 2)} см`),
+        eq('M_{ult} = R_{s}·A_{s}·(h_{0} − 0,5·x)', `${nR(RsCm, 1)}·${n(gS.As, 2)}·(${n(gS.h0)} − 0,5·${n(gS.x, 2)})·10^{−2}`, `${nF(gS.Mult, 1)} ${U()}·м`),
+        eq('K = M/M_{ult}', `${nF(gS.M, 1)}/${nF(gS.Mult, 1)}`, k3(gS.Kbend))),
+    ]);
+    const diff = li([
+      `<b>Метод один</b> — прямоугольная эпюра напряжений в сжатой зоне: ${F('v')} табл. 2 Пособия — это плечо пары ${F('ζ = 1 − ξ/2')}, тот же результат, что ${F('M_{ult} = R_{s}·A_{s}·(h_{0} − 0,5·x)')}.`,
+      e0 > 0 ? `<b>Разница — в моменте:</b> Пособие берёт сваи в проектном положении, расчёт по СП 63 в приложении — с допуском на смещение ${F(`e_{0} = ${n(e0)} мм`)}: +${F(`Q·e_{0} = ${nF(gS.Q * e0 / 1000, 1)} ${U()}·м`)} в сечении «${esc(gS.name)}».` : '<b>Смещение свай не задано</b> — моменты совпадают.',
+      `<b>Числа.</b> K: ${kSpan(gp.K)} (Пособие, по арматуре) и ${kSpan(gS.Kbend)} (СП 63, по моменту).`,
+    ]);
+    return { key: 'bend', title: 'Изгиб по граням колонны', kP: gp.K, kS: gS.Kbend, left, right, diff,
+      why: e0 > 0 ? `метод один; по СП 63 момент с допуском на смещение свай e0 = ${n(e0)} мм` : 'метод один, результат совпадает', inApp: 'СП 63' };
+  }
+
+  // =====================================================================
+  // 5. Наклонное сечение по моменту (анкеровка нижней арматуры)
+  // =====================================================================
+  function anchor(r) {
+    const inp = r.input;
+    const rP = C.compute({ ...inp, anchorMethod: 'Пособие п. 2.15' }), rS = C.compute({ ...inp, anchorMethod: 'СП 63 п. 8.1.35' });
+    const aP = S.render(rP).anchor, aS = S.render(rS).anchor;
+    const A = r.anchorCompare, ps = A.pos, sp = A.sp, hy = A.hyb;
+    const sP = r.sections.reduce((a, b) => (b.anchorP.K > a.anchorP.K ? b : a)), ap = sP.anchorP;
+    const sA = r.sections.reduce((a, b) => (b.KMs > a.KMs ? b : a));
+    const RsCm = r.Rs / 10, RbtCm = r.Rbt / 10;
+    const dsP = sP.ds, posAn = ap.needP && isNum(ap.lanP);
+    const leftSteps = [
+      step('Что проверяем', P(`Пособие п. 2.15: у крайнего ряда свай наклонная трещина пересекает нижнюю арматуру близко к её концу. Проверка не нужна, если поперечная сила не менее чем в 1,25 раза меньше ${F('Q')} по ф. (15) при ${F('h_{0}/c = 0,5')}; иначе проверяется анкеровка по ф. (27)–(31).`)),
+      step('Нужна ли проверка',
+        eq('Q_{lim} = 1,5·b·h_{0}·R_{bt}·0,5/1,25 = 0,6·R_{bt}·b·h_{0}', `0,6·${nR(RbtCm, 4)}·${n(sP.bw, 1)}·${n(sP.h0)}`, `${nF(ap.QlimP, 1)} ${U()}`, 'Пособие п. 2.15'),
+        P(`${F(`Q = ${nF(sP.Q, 1)} ${U()}`)} ${ap.needP ? '>' : '≤'} ${F(`Q_{lim}`)} — ${ap.needP ? 'проверка анкеровки нужна' : 'прочность обеспечена без расчёта'}.`)),
+    ];
+    if (posAn) {
+      leftSteps.push(step('Момент и требуемая арматура у крайнего ряда',
+        eq('M_{sec} = (c + d_{sv}/2)·∑F_{i}', `(${n(ap.cExt, 0)} + ${n(r.bp, 0)}/2)·${nF(ap.Fext, 1)}·10^{−3}`, `${nF(ap.Msec, 1)} ${U()}·м`, 'ф. (27), сваи в проектном положении'),
+        eq('A_{s,cal} = M_{sec}/(0,9·h_{0}·R_{s})', `${nF(ap.Msec, 1)}·10^{2}/(0,9·${n(sP.h0)}·${nR(RsCm, 1)})`, `${n(ap.AsCal, 2)} см^{2}`, 'ф. (28)')));
+      leftSteps.push(step('Длина анкеровки — требуемая и фактическая',
+        eq('l_{an} = (0,5·R_{s}/R_{b}·A_{s,cal}/A_{s,fac} + 8)·d ≥ 12·d', `(0,5·${n(r.Rs, 0)}/${n(r.Rb)}·${n(ap.AsCal, 2)}/${n(sP.As, 2)} + 8)·${n(dsP)}`, `${n(ap.lanP, 0)} мм`, 'ф. (29), ω = 0,5, λ = 8 — по СНиП 2.03.01-84'),
+        eq(`l_{fac} = d_{sv} + l_{0} − a${ap.hook ? ' + l_{лап}' : ''}`, `${n(r.bp, 0)} + ${n(ap.l0, 0)} − ${n(inp.cover)}${ap.hook ? ` + ${n(ap.hook)}` : ''}`, `${n(ap.lfac, 0)} мм`, 'ф. (31)'),
+        eq('K = l_{an}/l_{fac}', `${n(ap.lanP, 0)}/${n(ap.lfac, 0)}`, k3(ap.K), 'ф. (30)')));
+    }
+    const left = verdict(ps.K, 'Анкеровка по Пособию', `Сечение «${esc(sP.name)}».`) + fig(aP) + steps(leftSteps);
+    const row = sA.aGov, red = r.lanRed || 0;
+    const right = verdict(sp.K, 'Наклонное сечение по моменту по СП 63', `Сечение «${esc(sA.name)}».`) + fig(aS) + steps([
+      step('Что проверяем', P(`СП 63 п. 8.1.35: ${F('M ≤ M_{s} = N_{s}·z_{s}')}, ${F('M')} — от сил по одну сторону наклонного сечения относительно его конца у грани колонны (точка 0); в зоне анкеровки ${F('N_{s} = R_{s}·A_{s}·l_{s}/l_{an}')} (п. 10.3.26). Проверяется всегда; наклонные сечения — от внутренней грани каждого ряда свай.`)),
+      step('Момент и усилие в арматуре',
+        eq('M = ∑F_{i}·(x_{i} + e_{0})', '', `${nF(row.M, 1)} ${U()}·м`, `сечение от ряда свай c = ${n(row.c, 0)} мм; e0 = ${n(inp.e0)} мм`),
+        eq('l_{0,an} = R_{s}·d_{s}/(4·η_{1}·η_{2}·R_{bt})', `${n(r.Rs)}·${n(sA.ds)}/(4·${n(inp.eta1, 2)}·${sA.ds > 32 ? '0,9' : '1'}·${n(r.Rbt, 3)})`, `${n(sA.l0an, 0)} мм`, 'ф. (10.1), (10.2)'),
+        eq('l_{an} = max((1 − δ)·l_{0,an}; 0,3·l_{0,an}; 15·d_{s}; 200)', `max(${n((1 - red) * sA.l0an, 0)}; ${n(sA.lanMin, 0)})`, `${n(sA.lan, 0)} мм`, `ф. (10.3), п. 10.3.25; δ = ${n(red * 100, 0)} %`),
+        eq(`l_{s}${sA.hook ? ' = l_{s,пр} + l_{лап}' : ''}`, sA.hook ? `${n(row.lsStraight, 0)} + ${n(sA.hook, 0)}` : '', `${n(row.ls, 0)} мм`, 'п. 10.3.26 — по оси стержня до его конца'),
+        eq('N_{s} = R_{s}·A_{s}·min(1; l_{s}/l_{an})', `${nR(RsCm, 1)}·${n(sA.As, 2)}·${n(Math.min(1, Math.max(0, row.ls / sA.lan)), 3)}`, `${nF(row.Ns, 1)} ${U()}`),
+        eq('M_{s} = N_{s}·0,9·h_{0}', `${nF(row.Ns, 1)}·0,9·${n(sA.h0)}·10^{−2}`, `${nF(row.Ms, 1)} ${U()}·м`, 'ф. (8.64)'),
+        eq('K = M/M_{s}', `${nF(row.M, 1)}/${nF(row.Ms, 1)}`, k3(sA.KMs))),
+      step('Вариант «СП 63 с условиями Пособия»', P(`При ${F('Q ≤ min(Q_{b1}; 0,6·R_{bt}·b·h_{0})')} (СП 63 п. 10.3.27 и Пособие п. 2.15) достаточно запуска стержней за грань сваи ${F('5·d_{s}')}; иначе — проверка выше. Здесь: ${F(`Q = ${nF(hy.Q, 1)}`)} ${hy.free ? '≤' : '>'} ${F(`${nF(hy.Qlim, 1)} ${U()}`)} → ${kSpan(hy.K)}.`)),
+    ]);
+    const diff = li([
+      `<b>Момент.</b> Точка отсчёта одна — грань колонны: ${F('M_{sec} = (c + d_{sv}/2)·∑F_{i}')} Пособия — это и есть момент СП 63 «от сил по одну сторону сечения». Разница — допуск на смещение свай ${F(`e_{0} = ${n(inp.e0)} мм`)}${posAn ? `: ${F(`${nF(ap.Msec, 1)}`)} против ${F(`${nF(sp.M, 1)} ${U()}·м`)}` : ''}${sp.rows > 1 ? ', и СП 63 проверяет все ряды свай, Пособие — только крайний' : ''}.`,
+      `<b>Требуемая длина.</b> Пособие — формула (29) из СНиП 2.03.01-84 (${posAn ? `${n(ps.lanP, 0)} мм` : 'не потребовалась'}), СП 63 — по сцеплению ${F('R_{bond} = η_{1}·η_{2}·R_{bt}')}: ${F(`l_{0,an} = ${n(sp.l0an, 0)}`)}${red ? `, со снижением δ = ${n(red * 100, 0)} % — ${F(`l_{an} = ${n(sp.lan, 0)} мм`)}` : ' мм'}. Формула СНиП даёт заметно меньшую длину.`,
+      `<b>Недогруз арматуры</b> (${F('A_{s,cal}/A_{s,fac}')} в ф. (29)) в СП 63 тоже учтён — через ${F('N_{s} = R_{s}·A_{s}·l_{s}/l_{an}')}: условие ${F('M ≤ M_{s}')} равносильно ${F('l_{s} ≥ l_{an}·A_{s,cal}/A_{s}')}.`,
+      `<b>Освобождение при малой Q.</b> В Пособии — ${F('Q ≤ 0,6·R_{bt}·b·h_{0}')}; в СП 63 — аналог в п. 10.3.27 (${F('Q ≤ Q_{b1}')} → запуск ${F('5·d_{s}')}). Оба условия вместе — вариант «СП 63 с условиями Пособия».`,
+      `<b>Числа.</b> K: ${kSpan(ps.K)} (Пособие), ${kSpan(sp.K)} (СП 63), ${kSpan(hy.K)} (СП 63 с условиями Пособия). В итоге приложения — ${esc({ sp: 'СП 63', hyb: 'СП 63 с условиями Пособия', pos: 'Пособие' }[A.used])}.`,
+    ]);
+    return { key: 'anchor', title: 'Наклонное сечение по моменту (анкеровка нижней арматуры)', kP: ps.K, kS: sp.K, left, right, diff,
+      why: 'момент тот же, но с e0; длина анкеровки по сцеплению СП 63 больше формулы СНиП; освобождение при малой Q — п. 10.3.27', inApp: { sp: 'СП 63', hyb: 'СП 63 + усл. Пособия', pos: 'Пособие' }[A.used] };
+  }
+
+  // =====================================================================
+  // Сборка документа
+  // =====================================================================
+  function inputs(r) {
+    const p = r.input, row = (a, b) => `<tr><td class="l">${a}</td><td class="v">${b}</td></tr>`;
+    return `<table class="dt inp">${[
+      row('Ростверк l × b × h', `${n(p.l, 0)} × ${n(p.b, 0)} × ${n(p.h, 0)} мм${r.step ? `; ступень ${n(r.step.L, 0)} × ${n(r.step.B, 0)} × ${n(r.step.H, 0)} мм` : ''}`),
+      row('Колонна', `${n(p.bcol, 0)} × ${n(p.hcol, 0)} мм — ${esc(p.colJoint || '')}`),
+      row('Сваи', `${r.pileRows.length} шт., ${esc(p.pileShape || '')} ${n(p.pileSize, 0)} мм, заделка ${n(p.lEmb, 0)} мм; проверяемая — ${esc(p.pilePosition || '')}, F = ${nF(p.F1)} ${U()}`),
+      row('Нагрузки на колонну', `N = ${nF(p.N)} ${U()}, Mx = ${nF(p.Mx)}, My = ${nF(p.My)} ${U()}·м`),
+      row('Бетон', `${esc(p.concrete)}, γb1 = ${n(p.gammaB1, 2)}: Rb = ${n(r.Rb, 2)} МПа, Rbt = ${n(r.Rbt, 3)} МПа`),
+      row('Нижняя сетка', `${esc(p.rebarClass)} (Rs = ${n(r.Rs)} МПа): вдоль X ${n(p.nx)} Ø${n(p.dsx)}, вдоль Y ${n(p.ny)} Ø${n(p.dsy)}; a = ${n(p.a)} мм, защитный слой у торца ${n(p.cover)} мм${p.hook ? `, лапки ${n(p.hook)} мм` : ''}`),
+      row('Рабочая высота', `h0 = ${n(r.h0, 0)} мм${r.step ? ` (плиты), под колонной ${n(r.h0top, 0)} мм` : ''}; h01 от верха сваи = ${n(r.h01, 0)} мм`),
+      row('Допуск на смещение свай', `${n(p.e0)} мм в моменте; при продавливании сваей — ${n(r.dX, 0)} / ${n(r.dY, 0)} мм (${esc(p.shiftDir || '')})`),
+    ].join('')}</table>`;
+  }
+
+  function appendix() {
+    const pick = (doc, nums) => nums.map((num) => (N.CLAUSES || []).find((c) => c.doc === doc && c.num === num)).filter(Boolean);
+    const col = (doc, list) => list.map((c) => `<div class="cl"><div class="cl-h">${esc(N.label ? N.label(c) : 'п. ' + c.num)}</div>${N.clauseHtml(c)}</div>`).join('');
+    const pairs = [
+      ['Продавливание колонной', pick('pos', ['2.2', '2.3']), pick('sp63', ['8.1.46', '8.1.47'])],
+      ['Продавливание сваей', pick('pos', ['2.9', 'табл. 1']), pick('sp63', ['8.1.49', '8.1.50', '8.1.51', '8.1.52'])],
+      ['Поперечная сила', pick('pos', ['2.10', '2.11']), pick('sp63', ['8.1.33'])],
+      ['Изгиб', pick('pos', ['2.12', '2.13', '2.14']), []],
+      ['Наклонное сечение по моменту, анкеровка', pick('pos', ['2.15']), pick('sp63', ['8.1.35', '10.3.24', '10.3.25', '10.3.26', '10.3.27'])],
+    ];
+    return `<section class="topic appx"><h2>Приложение. Тексты пунктов</h2>${pairs.map(([t, a, b]) => `<h3>${esc(t)}</h3><div class="pair"><div class="col pos">${col('pos', a) || '<p class="xs-note">—</p>'}</div><div class="col sp">${col('sp63', b) || '<p class="xs-note">В СП 63 — общий расчёт нормальных сечений (п. 8.1.8 и далее), текст в справочник не включён.</p>'}</div></div>`).join('')}</section>`;
+  }
+
+  function build(input, opts) {
+    const o = opts || {};
+    const prev = H.isTs() ? 'тс' : 'кН';
+    X.setUnits(o.units === 'тс' ? 'тс' : 'кН');
+    try {
+      const r = input && input.sections ? input : C.compute(input);
+      const sc = S.render(r);
+      const topics = [column(r, sc), pile(r, sc), shear(r, sc), bend(r), anchor(r)];
+      const date = o.date || new Date().toLocaleDateString('ru-RU');
+      const title = 'Ростверк: Пособие и СП 63 — сравнение расчётов';
+      const sum = `<table class="dt sum"><tr><th class="l">Проверка</th><th>Пособие по ростверкам</th><th>СП 63.13330.2018</th><th>В итоге приложения</th><th class="l">Главная причина различия</th></tr>${topics.map((t, i) =>
+        `<tr><td class="l"><a href="#t${i + 1}">${i + 1}. ${esc(t.title)}</a></td><td class="v">${kSpan(t.kP)}</td><td class="v">${kSpan(t.kS)}</td><td class="v">${esc(t.inApp || '')}</td><td class="l">${esc(t.why)}</td></tr>`).join('')}
+        <tr><td class="l">Местное сжатие</td><td class="v" colspan="2">одна модель (СП 63 п. 8.1.44; Пособие пп. 2.17, 2.21): ${kSpan(Math.max(r.local && r.local.column ? r.local.column.K : 0, r.local && r.local.pile ? r.local.pile.K : 0))}</td><td class="v">СП 63</td><td class="l">не различается</td></tr></table>`;
+      const body = topics.map((t, i) => `<section class="topic" id="t${i + 1}"><h2>${i + 1}. ${esc(t.title)}</h2>
+        <div class="kk"><span class="tag pos">Пособие: K = ${kSpan(t.kP)}</span><span class="tag sp">СП 63: K = ${kSpan(t.kS)}</span></div>
+        ${t.common ? `<div class="common">${t.common}</div>` : ''}
+        <div class="pair"><div class="col pos"><div class="ch">Пособие по ростверкам</div>${t.left}</div><div class="col sp"><div class="ch">СП 63.13330.2018</div>${t.right}</div></div>
+        <div class="diff"><h3>В чём разница</h3>${t.diff}</div></section>`).join('');
+      const name = o.name ? `<div class="pname">${esc(o.name)}</div>` : '';
+      return `<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${esc(title)}${o.name ? ' — ' + esc(o.name) : ''}</title><style>${CSS}</style></head><body><main>
+<header><div class="eyebrow">Расчёт ростверка на продавливание · версия ${esc(C.VERSION || '')} · ${esc(date)} · силы в ${U()}</div><h1>${esc(title)}</h1>${name}
+<p class="lead">Каждая проверка — две колонки: слева расчёт по Пособию по проектированию железобетонных ростверков свайных фундаментов (к СНиП 2.03.01-84), справа — по СП 63.13330.2018, с теми же исходными данными. Под колонками — в чём различаются подходы и откуда разница в числах. В конце — тексты пунктов.</p></header>
+<section class="topic"><h2>Исходные данные</h2>${inputs(r)}</section>
+<section class="topic"><h2>Сводка</h2>${sum}<p class="xs-note">K — коэффициент использования (K ≤ 1 — прочность обеспечена). «В итоге приложения» — какая проверка входит в общий вывод при текущих настройках.</p></section>
+${body}${appendix()}
+</main></body></html>`;
+    } finally {
+      X.setUnits(prev);
+    }
+  }
+
+  const CSS = `
+:root { --ink:#16202a; --muted:#586675; --line:#d3dae2; --accent:#1d5ca6; --accent-soft:#e3edf8; --ok:#1b7543; --ok-bg:#e2f3e8; --bad:#b02a20; --bad-bg:#fbe5e2;
+  --slab:#e4e9ee; --slab-line:#7c8a99; --col:#8796a6; --pile:#c2ccd6; --surface:#fff; --pos:#9a5b13; --pos-soft:#fdf1e3;
+  --font-body:"IBM Plex Sans","Segoe UI",Roboto,Arial,sans-serif; --font-mono:"IBM Plex Mono",Consolas,Menlo,monospace; --font-display:"IBM Plex Sans Condensed","Arial Narrow",sans-serif; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #eef1f4; color: var(--ink); font-family: var(--font-body); font-size: 14px; line-height: 1.5; }
+main { max-width: 1400px; margin: 0 auto; padding: 24px 16px 48px; display: flex; flex-direction: column; gap: 18px; }
+header h1 { font-family: var(--font-display); font-size: 28px; margin: 4px 0; }
+.eyebrow { color: var(--muted); font-size: 12px; letter-spacing: .04em; text-transform: uppercase; }
+.pname { font-size: 16px; font-weight: 600; }
+.lead { max-width: 900px; color: var(--muted); }
+.topic { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; }
+.topic h2 { font-family: var(--font-display); font-size: 21px; margin: 0 0 10px; }
+.topic h3 { font-size: 15px; margin: 14px 0 8px; }
+.kk { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.tag { border-radius: 999px; padding: 3px 12px; font-size: 13px; }
+.tag.pos { background: var(--pos-soft); color: var(--pos); } .tag.sp { background: var(--accent-soft); color: var(--accent); }
+.kok { color: var(--ok); } .kbad { color: var(--bad); }
+.pair { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 14px; align-items: start; }
+@media (max-width: 900px) { .pair { grid-template-columns: minmax(0,1fr); } }
+.col { border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.col.pos { background: #fffaf3; border-top: 4px solid #e8a96a; } .col.sp { background: #f6f9fd; border-top: 4px solid var(--accent); }
+.ch { font-family: var(--font-display); font-weight: 600; font-size: 15px; }
+.col.pos .ch { color: var(--pos); } .col.sp .ch { color: var(--accent); }
+.common { display: flex; justify-content: center; margin-bottom: 10px; }
+.common .cmp-fig { max-width: 560px; }
+.diff { margin-top: 12px; border-left: 4px solid var(--ink); background: #f4f6f8; border-radius: 6px; padding: 8px 14px; }
+.diff h3 { margin: 4px 0; } .diff ul { margin: 4px 0; padding-left: 18px; } .diff li { margin: 4px 0; }
+.dt { border-collapse: collapse; font-size: 12.5px; width: 100%; }
+.dt th, .dt td { padding: 4px 8px; border-bottom: 1px solid var(--line); text-align: right; vertical-align: top; }
+.dt th { font-weight: 500; color: var(--muted); font-size: 11.5px; }
+.dt td.l, .dt th.l { text-align: left; }
+.dt .gov, .dt tr.gov td { background: var(--accent-soft); }
+.dt.sum td.v, .dt.sum th { text-align: center; } .dt.inp td.v { text-align: left; } .dt.inp td.l { width: 26%; color: var(--muted); }
+.tbl-wrap { overflow-x: auto; }
+a { color: var(--accent); }
+.xs-v { border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; font-size: 14px; }
+.xs-v.ok { background: var(--ok-bg); border-left: 4px solid var(--ok); } .xs-v.bad { background: var(--bad-bg); border-left: 4px solid var(--bad); }
+.xs-v.na { background: var(--accent-soft); border-left: 4px solid var(--muted); } .xs-v span { color: var(--muted); font-size: 13px; }
+.xs-list { counter-reset: xs; list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.xs-list > li.xs { counter-increment: xs; border: 1px solid var(--line); background: #fff; border-radius: 8px; padding: 10px 12px 10px 44px; position: relative; font-size: 13.5px; line-height: 1.5; min-width: 0; }
+.xs-list > li.xs::before { content: counter(xs); position: absolute; left: 12px; top: 9px; width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 12px; font-weight: 600; display: flex; align-items: center; justify-content: center; }
+.col.pos .xs-list > li.xs::before { background: #c97a2a; }
+.xs-t { font-weight: 600; margin-bottom: 4px; } .xs-list p { margin: 4px 0; }
+.xs-note { color: var(--muted); font-size: 12.5px; }
+.xs-eq { font-family: var(--font-mono); font-size: 12.5px; padding: 3px 0 3px 10px; border-left: 2px solid var(--line); margin: 4px 0; overflow-wrap: anywhere; }
+.xs-eq .xs-f { font-style: italic; } .xs-eq .xs-ref { display: block; font-family: var(--font-body); color: var(--muted); font-size: 11.5px; }
+.xs-eq sub, .xs-eq sup, .xf sub, .xf sup { font-size: 75%; }
+.xf { font-style: italic; }
+.xs-k { font-weight: 600; font-family: var(--font-mono); } .xs-k.ok { color: var(--ok); } .xs-k.bad { color: var(--bad); }
+.xs-vars { margin: 4px 0; padding-left: 18px; } .xs-vars li.gov { background: var(--accent-soft); border-radius: 4px; }
+.xs-fig { margin: 4px 0; } .xs-fig svg { max-width: 100%; height: auto; display: block; margin: 0 auto; }
+.xs-fig figcaption { font-size: 12px; color: var(--muted); margin-top: 4px; }
+details.xs-more { border: 1px dashed var(--line); border-radius: 8px; } details.xs-more > summary { cursor: pointer; padding: 6px 10px; font-size: 12.5px; color: var(--muted); }
+.xs-more-b { padding: 0 10px 10px; }
+.xg-slab { fill: var(--slab); stroke: none; } .xg-edge { stroke: var(--accent); stroke-width: 3; }
+.xg-pile { fill: var(--pile); stroke: var(--slab-line); stroke-width: 1; } .xg-cont { stroke: var(--bad); stroke-width: 2.5; stroke-dasharray: 6 3; fill: none; }
+.xg-ecc { stroke: var(--ink); stroke-width: 1.2; stroke-dasharray: 2 2; } .xg-pc { fill: var(--ink); } .xg-gc { fill: var(--bad); }
+.xg-t { font-size: 12px; fill: var(--ink); font-weight: 600; } .xg-s { font-size: 11px; fill: var(--accent); }
+.sd-main { fill: none; stroke: var(--ink); stroke-width: 1.6; } .sd-fill { fill: var(--slab); } .sd-nofill { fill: none; }
+.sd-pile { fill: var(--pile); stroke: var(--slab-line); stroke-width: 1; } .sd-pile-s { stroke: var(--ink); stroke-width: 1.2; }
+.sd-pile-chk { fill: none; stroke: var(--bad); stroke-width: 1.6; } .sd-pile-hot { stroke: var(--bad); stroke-width: 1.6; }
+.sd-pile-o { fill: var(--pile); stroke: var(--slab-line); stroke-width: 0.8; stroke-dasharray: 3 2; opacity: .6; }
+.sd-base { fill: none; stroke: var(--muted); stroke-width: 1.2; stroke-dasharray: 6 4; }
+.sd-red { fill: none; stroke: var(--bad); stroke-width: 1.5; stroke-dasharray: 7 4; } .sd-red-thin { stroke: var(--bad); stroke-width: 1; stroke-dasharray: 2 3; opacity: .7; fill: none; }
+.sd-rebar { stroke: var(--ink); stroke-width: 2.2; } .sd-dim { stroke: var(--muted); stroke-width: .8; } .sd-ext { stroke: var(--muted); stroke-width: .6; }
+.sd-tick { stroke: var(--ink); stroke-width: 1.2; } .sd-thin { fill: none; stroke: var(--ink); stroke-width: 1; }
+.sd-axis { stroke: var(--muted); stroke-width: .7; stroke-dasharray: 12 3 2 3; } .sd-hatch { stroke: var(--col); stroke-width: 1; }
+.sd-edge { stroke: var(--accent); stroke-width: 3; } .sd-bar { stroke: var(--ink); stroke-width: 1.3; } .sd-bar2 { stroke: var(--accent); stroke-width: 1.3; }
+.sd-col-o { fill: none; stroke: var(--col); stroke-width: 1; stroke-dasharray: 5 3; } .sd-step { fill: var(--slab); fill-opacity: .6; }
+.sd-dot { fill: var(--ink); } .sd-lead { stroke: var(--ink); stroke-width: .9; }
+.sd-t { font-family: var(--font-mono); font-size: 10px; fill: var(--ink); }
+.sd-h { font-family: var(--font-display); font-size: 12px; font-weight: 600; fill: var(--muted); letter-spacing: .04em; }
+.sd-muted { fill: var(--muted); } .sd-bad { fill: var(--bad); }
+.sd-req-ok { stroke: var(--ok); stroke-width: 2.2; } .sd-req-bad { stroke: var(--bad); stroke-width: 2.2; }
+.appx .cl { margin-bottom: 10px; font-size: 13px; } .appx .cl-h { font-weight: 600; } .appx .cl p { margin: 4px 0; }
+.appx .nf { display: flex; gap: 12px; justify-content: center; font-style: italic; } .appx .nf-n { font-style: normal; }
+.appx .nfig { color: var(--muted); } .appx .ntab { overflow-x: auto; } .appx table { border-collapse: collapse; font-size: 11px; } .appx td, .appx th { border: 1px solid var(--line); padding: 2px 4px; }
+@page { size: A4 landscape; margin: 10mm; }
+@media print {
+  body { background: #fff; font-size: 11px; } main { padding: 0; max-width: none; gap: 10px; }
+  .topic { border: none; padding: 0; break-before: page; } .topic:first-of-type { break-before: auto; }
+  .xs-list > li.xs, .xs-fig, .diff { break-inside: avoid; }
+  .col.pos, .col.sp, .xs-v, .diff, .tag { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}`;
+
+  return { build };
 });
 
 </script>
@@ -23992,7 +24460,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   'use strict';
   const C = window.RostverkCalc;
   // Страница и подключаемые файлы ядра должны быть одной версии: иначе часть расчёта не отобразится
-  const APP_VERSION = '2026-10-22.1';
+  const APP_VERSION = '2026-10-22.2';
   function banner(msg) {
     let el = document.getElementById('appBanner');
     if (!el) {
@@ -24314,7 +24782,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       renderBlocked(v.errors);
       $('fixes').hidden = true;
       renderProjects();
-      $('wordBtn').disabled = true;
+      $('wordBtn').disabled = true; $('cmpBtn').disabled = true;
       $('wordBtn').title = 'Расчёт не выполнен — исправьте исходные данные';
       $('pileBody').querySelectorAll('[data-c]').forEach((td) => { td.textContent = '—'; });
       return;
@@ -24322,7 +24790,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     shownSig = '';
     res.classList.remove('is-blocked');
     $('blocked').hidden = true;
-    $('wordBtn').disabled = false;
+    $('wordBtn').disabled = false; $('cmpBtn').disabled = false;
     $('wordBtn').title = '';
     const r = v.result;
     lastResult = r;
@@ -25256,6 +25724,20 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     } catch (e) {
       setStatus('Не удалось сформировать отчёт: ' + (e && e.message ? e.message : e), true);
     } finally { btn.disabled = false; }
+  });
+
+  // ---------- Сравнительный файл: Пособие и СП 63 рядом ----------
+  $('cmpBtn').addEventListener('click', async () => {
+    if (!lastResult) { setStatus('Сначала исправьте исходные данные — расчёт не выполнен.', true); return; }
+    if (!window.RostverkCompare) { setStatus('Модуль сравнения не загрузился — обновите страницу.', true); return; }
+    try {
+      const name = (state.reportName || '').trim();
+      const html = window.RostverkCompare.build(lastResult, { units: ws.units || 'кН', name });
+      await saveFile(`Пособие_и_СП63_${safeName(name || 'ростверк')}.html`, new Blob([html], { type: 'text/html;charset=utf-8' }));
+      setStatus('Файл сравнения сохранён: откройте его в браузере; для PDF — «Печать» → «Сохранить как PDF».');
+    } catch (e) {
+      setStatus('Не удалось сформировать сравнение: ' + (e && e.message ? e.message : e), true);
+    }
   });
 
   // ---------- Сводный отчёт по нескольким ростверкам ----------
