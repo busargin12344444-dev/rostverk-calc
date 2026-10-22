@@ -366,6 +366,7 @@ dialog.issues .toolbar { margin-top: 16px; justify-content: flex-end; }
     <div>
       <h1>Продавливание ростверка колонной и угловой (крайней) сваей</h1>
       <p class="sub">Пособие по проектированию ростверков к СНиП 2.03.01-84, СП 63.13330.2018, Пособие к СП 52-101. Расчёт пересчитывается при каждом изменении исходных данных.</p>
+      <p class="sub permalink">Постоянная ссылка на расчёт: <a href="https://busargin12344444-dev.github.io/rostverk-calc/" target="_blank" rel="noopener">busargin12344444-dev.github.io/rostverk-calc</a> · исходный код и версии — <a href="https://github.com/busargin12344444-dev/rostverk-calc" target="_blank" rel="noopener">GitHub</a></p>
     </div>
     <div class="legend-inline">
       <span><span class="sw" style="background:var(--in)"></span>вводимые данные</span>
@@ -1762,7 +1763,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     return { errors, warnings, result: errors.length ? null : r };
   }
 
-  const VERSION = '2026-10-22.2'; // должна совпадать с версией страницы и отчёта (index.html, report.js)
+  const VERSION = '2026-10-22.3'; // должна совпадать с версией страницы и отчёта (index.html, report.js)
   return { VERSION, compute, validate, suggest, DEFAULTS, CONCRETE, REBAR, BETA_TABLE, betaOf, meshSteps };
 });
 
@@ -23212,7 +23213,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     });
   }
 
-  const VERSION = '2026-10-22.2';
+  const VERSION = '2026-10-22.3';
   return { VERSION, create, createMany, build, omml, injectMath, FONT };
 });
 
@@ -24460,7 +24461,7 @@ details.xs-more { border: 1px dashed var(--line); border-radius: 8px; } details.
   'use strict';
   const C = window.RostverkCalc;
   // Страница и подключаемые файлы ядра должны быть одной версии: иначе часть расчёта не отобразится
-  const APP_VERSION = '2026-10-22.2';
+  const APP_VERSION = '2026-10-22.3';
   function banner(msg) {
     let el = document.getElementById('appBanner');
     if (!el) {
