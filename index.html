@@ -243,6 +243,12 @@ details.blk .body { padding: 0 16px 16px; display: flex; flex-direction: column;
 .sd-lead { stroke: var(--ink); stroke-width: 0.9; }
 .sd-t { font-family: var(--font-mono); font-size: 10px; fill: var(--ink); }
 .sd-h { font-family: var(--font-display); font-size: 12px; font-weight: 600; fill: var(--muted); letter-spacing: 0.04em; }
+.sd-muted { fill: var(--muted); }
+.sd-bad { fill: var(--bad); }
+.sd-req-ok { stroke: var(--ok); stroke-width: 2.2; }
+.sd-req-bad { stroke: var(--bad); stroke-width: 2.2; }
+.scheme-wide { grid-column: 1 / -1; }
+.scheme-wide svg { max-width: 640px; }
 .results.is-blocked > section:not(#blocked):not(#warns):not(.notes) { display: none !important; }
 .blocked { padding: 16px 18px; border-left: 5px solid var(--bad); display: flex; flex-direction: column; gap: 10px; }
 .blocked h2 { color: var(--bad); font-size: 19px; }
@@ -403,6 +409,7 @@ dialog.issues .toolbar { margin-top: 16px; justify-content: flex-end; }
         <div class="schemes">
           <figure class="scheme" style="margin:0"><h3>Продавливание колонной</h3><div id="schemeCol"></div><p id="schemeColCap"></p></figure>
           <figure class="scheme" style="margin:0"><h3>Продавливание угловой сваей</h3><div id="schemeCor"></div><p id="schemeCorCap"></p></figure>
+          <figure class="scheme scheme-wide" style="margin:0"><h3>Анкеровка нижней арматуры (лапка, длины анкеровки)</h3><div id="schemeAnc"></div><p id="schemeAncCap"></p></figure>
         </div>
       </section>
       <section class="panel mesh-panel">
@@ -1019,7 +1026,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
       const alphaM = M * 100 / (RbCm * d.bwC * h0cm ** 2);
       const AsReq = alphaM > xiR * (1 - 0.5 * xiR) ? null : RbCm * d.bwC * h0cm * (1 - Math.sqrt(1 - 2 * alphaM)) / RsCm;
       return {
-        name: d.name, coord: d.coord, bw: d.bw, bwC: d.bwC, bFull: d.bFull, at: d.at, h0: h0cm, Q, Qstrip, Kstrip: Q / Qstrip, c: ccm, Qb, KQb: govRow.K,
+        name: d.name, coord: d.coord, axis: d.axis, dir: d.dir, edgeDist: d.dir > 0 ? d.edge - d.coord : d.coord - d.edge, bw: d.bw, bwC: d.bwC, bFull: d.bFull, at: d.at, h0: h0cm, Q, Qstrip, Kstrip: Q / Qstrip, c: ccm, Qb, KQb: govRow.K,
         shearRows, shearGov: govRow,
         M, As: d.As, x, xi, Mult, Kbend: M / Mult, ls: aGov.ls, lsStraight: aGov.lsStraight, Ma: aGov.M, cA: aGov.c, anchorRows, aGov, hGov, KH: hGov.KH, hook, ds: d.ds, l0an: l0an(d.ds), lanMin: lanMin(d.ds), lan: lanV, Ns, Ms, KMs, anchorP, alphaM, AsReq,
       };
@@ -1754,7 +1761,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     return { errors, warnings, result: errors.length ? null : r };
   }
 
-  const VERSION = '2026-10-21.2'; // должна совпадать с версией страницы и отчёта (index.html, report.js)
+  const VERSION = '2026-10-22.1'; // должна совпадать с версией страницы и отчёта (index.html, report.js)
   return { VERSION, compute, validate, suggest, DEFAULTS, CONCRETE, REBAR, BETA_TABLE, betaOf, meshSteps };
 });
 
@@ -2108,8 +2115,110 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     return { svg: s.out(H, 'hm', 'План нижней сетки ростверка'), caption };
   }
 
+  // Анкеровка нижней арматуры у определяющего наклонного сечения по моменту: разрез вдоль стержня
+  // от грани колонны до края ростверка — свая, стержень с лапкой, наклонная трещина, фактическая и требуемая длины
+  function anchorScheme(r) {
+    const p = r.input, A = r.anchorCompare;
+    if (!A || !r.sections || !r.sections.length) return null;
+    const used = A.used;
+    const pick = (key) => r.sections.reduce((a, b) => (key(b) > key(a) ? b : a));
+    const sc = used === 'pos' ? pick((q) => q.anchorP.K) : used === 'hyb' ? pick((q) => q.KH) : pick((q) => q.KMs);
+    if (!sc.anchorRows || !isFinite(sc.edgeDist)) return null;
+    const row = used === 'pos' ? sc.anchorRows[sc.anchorRows.length - 1] : used === 'hyb' ? sc.hGov : sc.aGov;
+    if (!(row.M > 0)) return null;
+    const ap = sc.anchorP, posAn = used === 'pos' && ap && isFinite(ap.lanP);
+    const L = sc.edgeDist, dsv = r.bp, hook = sc.hook || 0, cover = p.cover;
+    const st = r.step && sc.at === 'col' ? r.step : null;
+    const stepExt = st ? (sc.axis === 'x' ? (st.L - p.bcol) / 2 : (st.B - p.hcol) / 2) : 0;
+    const Ht = st ? r.Htot : p.h, aBar = p.h - r.h0;
+    const colHalf = (sc.at === 'step' ? (sc.axis === 'x' ? r.step.L : r.step.B) : (sc.axis === 'x' ? p.bcol : p.hcol)) / 2;
+    const c0 = row.c, lsS = row.lsStraight, ls = row.ls;
+    const red = r.lanRed || 0;
+    const reqs = [];   // требуемые длины — от начала наклонного сечения
+    if (used === 'hyb' && row.free) reqs.push({ v: 5 * sc.ds, lab: `5ds = ${num(5 * sc.ds)} (п. 10.3.27)`, ok: ls >= 5 * sc.ds - 0.5 });
+    else if (posAn) reqs.push({ v: ap.lanP, lab: `lan = ${num(ap.lanP)} (Пособие ф. (29))`, ok: ap.lfac >= ap.lanP - 0.5 });
+    else {
+      const lanRed = (1 - red) * sc.l0an;
+      reqs.push({ v: sc.l0an, lab: `l0,an = ${num(sc.l0an)}`, thin: true });
+      if (red > 0 || sc.lan > lanRed + 0.5) {
+        const why = sc.lan > lanRed + 0.5 ? `min = ${num(sc.lan)}` : `(1 − ${String(red).replace('.', ',')})·l0,an = ${num(sc.lan)}`;
+        reqs.push({ v: sc.lan, lab: `lan = ${why}${red > 0 ? ' (п. 10.3.25)' : ''}`, ok: ls >= sc.lan - 0.5, cut: red > 0 ? sc.l0an - sc.lan : 0 });
+      } else reqs[0].ok = ls >= sc.lan - 0.5;
+    }
+    const uMax = Math.max(L, ...reqs.map((q) => c0 + q.v)) + 20;
+    let uMin = -Math.min(colHalf, 220);
+    const kOf = () => Math.min((W - ML - MR) / (uMax - uMin), 0.6, 260 / Ht);
+    if (-uMin * kOf() < 64) uMin = -64 / kOf(); // колонна на схеме — не уже 64 ед.
+    const k = kOf();
+    const X = (u) => ML + (u - uMin) * k;
+    const s = Svg();
+    s.text(W / 2, 12, `Анкеровка нижней арматуры — ${sc.name}`, { cls: 'sd-h' });
+    const top = 84, slabTop = top + (Ht - p.h) * k, slabBot = top + Ht * k;
+    const Z = (z) => slabBot - z * k;
+    // Колонна (обрыв слева и сверху), плита, ступень
+    s.line(X(0), top - 30, X(0), top, 'sd-main');
+    s.breakH(X(uMin), X(0), top - 30);
+    s.text((X(uMin) + X(0)) / 2, top - 8, sc.at === 'step' ? 'ступень' : 'колонна', { cls: 'sd-t sd-muted' });
+    s.rect(X(uMin), slabTop, X(L), slabBot, 'sd-main sd-fill');
+    if (st && stepExt > 0) s.rect(X(uMin), top, X(Math.min(stepExt, L)), slabTop + 0.8, 'sd-main sd-fill');
+    s.line(X(uMin), slabTop - 6, X(uMin), slabBot + 6, 'sd-thin');
+    // Сваи за гранью — по проекции на ось сечения
+    const rel = [];
+    for (const q of r.pileRows) {
+      const u = sc.dir * (q[sc.axis] - sc.coord);
+      if (u > 0 && !rel.some((v) => Math.abs(v - u) < 1)) rel.push(u);
+    }
+    rel.forEach((u) => pileStub(s, X, slabBot, u, dsv, 'sd-pile-s'));
+    // Стержень: прямой участок до торца минус защитный слой, лапка вверх
+    const uEnd = L - cover, zb = aBar;
+    s.line(X(uMin), Z(zb), X(uEnd), Z(zb), 'sd-rebar');
+    if (hook > 0) s.add(`<path d="M${X(uEnd) - 4},${Z(zb)} Q${X(uEnd)},${Z(zb)} ${X(uEnd)},${Z(zb) - 4} L${X(uEnd)},${Z(zb + hook)}" class="sd-rebar" fill="none"/>`);
+    // Наклонная трещина: от внутренней грани ряда свай (на уровне арматуры) к грани колонны вверху (точка 0)
+    s.line(X(c0), slabBot, X(0), top, 'sd-red');
+    s.add(`<circle cx="${X(0)}" cy="${top}" r="2.6" class="sd-dot"/>`);
+    s.text(X(0) + 6, top + 11, '0', { anchor: 'start' });
+    s.add(`<circle cx="${X(c0)}" cy="${Z(zb)}" r="2.6" class="sd-dot"/>`);
+    // Сверху — вылет от грани до края
+    s.dimH(X(0), X(L), top - 44, `${num(L)} — от грани до края`, top - 2);
+    // Справа — высоты и лапка
+    const xr = X(L) + 14;
+    if (hook > 0) s.dimV(Z(zb), Z(zb + hook), X(uEnd) - 12, `lлап=${num(hook)}`, X(uEnd) - 3);
+    s.chainV([Z(0), Z(zb), Z(Ht)], [num(zb), `h0=${num(Ht - zb)}`], xr, X(L) + 2);
+    // Снизу: фактическая цепочка c — ls,пр — aт
+    const y1 = slabBot + 46;
+    s.chainH([X(0), X(c0), X(uEnd), X(L)], [`c=${num(c0)}`, `ls,пр=${num(lsS)}`, `${num(cover)}`], y1, slabBot + 2);
+    // Требуемые длины — от начала наклонного сечения; первой — фактическая ls в развёртке (лапка выпрямлена)
+    const lsLab = posAn ? `lfac = ${num(ap.lfac)}${hook > 0 ? ` (с лапкой ${num(hook)})` : ''} — фактическая`
+      : hook > 0 ? `ls = ${num(lsS)} + лапка ${num(hook)} = ${num(ls)} — фактическая, развёртка` : `ls = ${num(ls)} — фактическая (прямые концы)`;
+    let y = y1 + 34;
+    for (const q of [{ v: posAn ? ap.lfac : ls, lab: lsLab, fact: true }, ...reqs]) {
+      s.line(X(c0), y1 + 18, X(c0), y + 3, 'sd-ext');
+      s.line(X(c0), y, X(c0 + q.v), y, q.fact ? 'sd-rebar' : q.thin ? 'sd-dim' : q.ok ? 'sd-req-ok' : 'sd-req-bad');
+      if (q.cut > 0) {
+        const cl = `−${num(red * 100)} % = ${num(q.cut)}`, cx = (X(c0 + q.v) + X(c0 + q.v + q.cut)) / 2;
+        if (X(c0 + q.v + q.cut) - X(c0 + q.v) > tw(cl) + 4) s.text(cx, y - 30, cl, { cls: 'sd-t sd-bad' });
+      }
+      for (const x of [X(c0), X(c0 + q.v)]) s.line(x - 3, y + 3, x + 3, y - 3, 'sd-tick');
+      const lx = Math.min(X(c0) + 3, W - tw(q.lab) - 2);
+      s.text(lx, y - 4, q.lab, { anchor: 'start', cls: q.thin ? 'sd-t sd-muted' : 'sd-t' });
+      y += 26;
+    }
+    const lastReq = reqs[reqs.length - 1];
+    const ok = lastReq.ok;
+    const reqV = lastReq.v, lsV = posAn ? ap.lfac : ls;
+    const H = y + 4;
+    const caption = `Определяющее наклонное сечение по моменту (${{ sp: 'СП 63', hyb: 'СП 63 с условиями Пособия', pos: 'Пособие' }[used]}): трещина — красный пунктир от внутренней грани сваи (${num(c0)} мм от грани) к грани колонны, точка 0 — конец сечения. `
+      + `Фактическая длина анкеровки — по оси стержня от начала трещины до конца стержня${hook > 0 ? `, лапка ${num(hook)} мм входит целиком` : ''}: ${posAn ? `lfac = ${num(ap.lfac)}` : `ls = ${num(ls)}`} мм. `
+      + (used === 'hyb' && row.free ? `Поперечная сила мала (п. 10.3.27 и Пособие п. 2.15) — достаточно 5ds = ${num(reqV)} мм. `
+        : posAn ? `Требуемая по Пособию lan = ${num(reqV)} мм. `
+          : `Требуемая длина: l0,an = ${num(sc.l0an)} мм${red > 0 ? `, со снижением на ${num(red * 100)} % по п. 10.3.25 — ${num((1 - red) * sc.l0an)} мм` : ''}${sc.lan > (1 - red) * sc.l0an + 0.5 ? `, но не менее ${num(sc.lan)} мм (0,3·l0,an; 15ds; 200)` : ''} → lan = ${num(sc.lan)} мм. `)
+      + (ok ? `${num(lsV)} ≥ ${num(reqV)} мм — стержень развивает полное усилие Rs·As.`
+        : `${num(lsV)} < ${num(reqV)} мм — усилие в стержне снижается до Rs·As·${num(lsV)}/${num(reqV)} (это учтено в Ms); для полного Rs·As ${hook > 0 ? `увеличьте лапку до ${num(hook + reqV - lsV)} мм` : `добавьте лапку ${num(reqV - lsV)} мм`} или свес.`);
+    return { svg: s.out(H, 'hatch-anc', 'Схема анкеровки нижней арматуры с лапкой и длинами анкеровки'), caption, ok };
+  }
+
   function render(r) {
-    return { column: columnScheme(r), corner: cornerScheme(r), mesh: meshScheme(r) };
+    return { column: columnScheme(r), corner: cornerScheme(r), mesh: meshScheme(r), anchor: anchorScheme(r) };
   }
 
   return { render };
@@ -22853,6 +22962,10 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     } else {
       P('Сваи крайнего ряда заходят под колонну — анкеровку проверьте вручную.');
     }
+    if (o.images && o.images.anchor) {
+      image(o.images.anchor, 'Анкеровка нижней арматуры в определяющем наклонном сечении по моменту', 420);
+      if (o.anchorCaption) P(o.anchorCaption);
+    }
     // Сравнение двух методов
     const A = r.anchorCompare;
     if (A) {
@@ -22999,7 +23112,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     });
   }
 
-  const VERSION = '2026-10-21.2';
+  const VERSION = '2026-10-22.1';
   return { VERSION, create, createMany, build, omml, injectMath, FONT };
 });
 
@@ -23879,7 +23992,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   'use strict';
   const C = window.RostverkCalc;
   // Страница и подключаемые файлы ядра должны быть одной версии: иначе часть расчёта не отобразится
-  const APP_VERSION = '2026-10-21.2';
+  const APP_VERSION = '2026-10-22.1';
   function banner(msg) {
     let el = document.getElementById('appBanner');
     if (!el) {
@@ -24477,6 +24590,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       $('meshSum').style.color = bad ? 'var(--bad)' : '';
     }
     $('schemeCol').innerHTML = sc.column.svg;
+    $('schemeAnc').innerHTML = sc.anchor ? sc.anchor.svg : '<div class="empty">За гранями колонны нет свай — анкеровка нижней арматуры не проверяется.</div>';
+    $('schemeAncCap').textContent = sc.anchor ? sc.anchor.caption : '';
     $('schemeColCap').textContent = convText(sc.column.caption);
     if (sc.corner) {
       $('schemeCor').innerHTML = sc.corner.svg;
@@ -24807,7 +24922,9 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     else if (Math.abs(hy.K - sp.K) < 1e-9) why.push(`В варианте «СП 63 с условиями Пособия» Q больше предела освобождения (${n(hy.Qlim, 1)} кН), поэтому он совпадает с проверкой по СП 63.`);
     const used = U.sp ? '<b>по СП 63</b>' : U.hy ? '<b>по СП 63 с условиями Пособия</b> (формулы СП 63; освобождение при малой Q — только если его допускают и СП 63 п. 10.3.27, и Пособие п. 2.15)' : '<b>по Пособию</b>';
     const choice = `<p class="small">В итог входит проверка ${used} — метод выбирается в поле «Проверка наклонного сечения по моменту» (раздел «Армирование подошвы»). Остальные приведены для сравнения.${U.ps ? ' Учтите, что Пособие разработано к заменённому СНиП 2.03.01-84; при экспертизе основной считается проверка по СП 63.' : ''}</p>`;
-    return convText(tbl + (why.length ? `<p class="small"><b>Почему результаты различаются:</b> ${why.join(' ')}</p>` : '') + choice);
+    let fig = '';
+    try { const a = window.RostverkSchemes && window.RostverkSchemes.render(r).anchor; if (a) fig = `<figure class="scheme" style="margin:0 0 12px"><div class="scheme-wide">${a.svg}</div><p>${esc(a.caption)}</p></figure>`; } catch (e) { /* схема необязательна */ }
+    return fig + convText(tbl + (why.length ? `<p class="small"><b>Почему результаты различаются:</b> ${why.join(' ')}</p>` : '') + choice);
   }
 
   function localInner(r) {
@@ -25057,13 +25174,14 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     if (v.errors.length || !v.result) return null;
     const r = v.result;
     const sc = window.RostverkSchemes.render(r);
-    const [plan, column, corner, mesh] = await Promise.all([
+    const [plan, column, corner, mesh, anchor] = await Promise.all([
       markupToPng(renderPlan(r, true), 420),
       markupToPng(sc.column && sc.column.svg, 330),
       markupToPng(sc.corner && sc.corner.svg, 330),
       markupToPng(sc.mesh && sc.mesh.svg, 400),
+      markupToPng(sc.anchor && sc.anchor.svg, 420),
     ]);
-    return { r, opts: { name: (data.reportName || '').trim(), inputGroups: inputGroupsForReport(data, r), images: { plan, column, corner, mesh }, warnings: convIssues(v.warnings), units: ws.units || 'кН' } };
+    return { r, opts: { name: (data.reportName || '').trim(), inputGroups: inputGroupsForReport(data, r), images: { plan, column, corner, mesh, anchor }, anchorCaption: sc.anchor && sc.anchor.caption, warnings: convIssues(v.warnings), units: ws.units || 'кН' } };
   }
   const reportNotes = () => [...document.querySelectorAll('.notes li')].map((li) => li.textContent.trim());
   const libsReady = () => {
