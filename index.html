@@ -1763,7 +1763,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     return { errors, warnings, result: errors.length ? null : r };
   }
 
-  const VERSION = '2026-10-22.3'; // должна совпадать с версией страницы и отчёта (index.html, report.js)
+  const VERSION = '2026-11-12.1'; // должна совпадать с версией страницы и отчёта (index.html, report.js)
   return { VERSION, compute, validate, suggest, DEFAULTS, CONCRETE, REBAR, BETA_TABLE, betaOf, meshSteps };
 });
 
@@ -1787,6 +1787,27 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
   const num = (v) => String(r0(v)).replace('-', '−');
   const tw = (s) => s.length * FS * 0.6; // оценка ширины подписи
 
+  // Обозначения в подписях («h0=530», «bcol», «l0,an», «5ds») — с нижним индексом; тот же список — в report.js
+  const IDX_TOKENS = ['l0,an', 'ls,пр', 'As,cal', 'As,fac', 'As,тр', 'As,x', 'As,y', 'ds,x', 'ds,y', 'Fb,ult', 'Mb,ult', 'Ab,loc', 'Ab,max', 'Rb,loc',
+    'Mx,tot', 'My,tot', 'Rbt', 'Rsw', 'Rb', 'Rs', 'Asw', 'As', 'h01', 'h0', 'b01', 'b02', 'c01', 'c02', 'lan', 'lfac', 'ls', 'dsv', 'dsw', 'ds',
+    'lлап', 'lзад', 'Fper', 'Fult', 'Qult', 'Qlim', 'Qb1', 'Qb', 'Q1', 'Mult', 'Msec', 'Ms', 'Ns', 'Kmax', 'e0', 'γb1', 'η1', 'β1', 'β2',
+    'bcol', 'hcol', 'bpl', 'hpl', 'bpk', 'hpk', 'hanc', 'Af', 'l0', 'Fi', 'F1', 'kM', 'Mx', 'My', 'MX', 'MY', 'b2', 'h2', 'l2', 'aт', 'aб', 'amin',
+    'bсв', 'xсв', 'yсв', 'zw', 'sw', 'nr', 'nx', 'ny', 'bred', 'Lx', 'Ly', 'c0', 'Fb'];
+  const IDX_RE = new RegExp(`(?<![A-Za-z\\u0400-\\u04ff_{}])(${IDX_TOKENS.slice().sort((a, b) => b.length - a.length).join('|')})(?![A-Za-z0-9\\u0400-\\u04ff_^{])`, 'g');
+  // Текст подписи → разметка SVG: индекс — уменьшенный и опущенный tspan, дальше — возврат на базовую линию
+  function subText(t) {
+    let out = '', last = 0, m;
+    const str = String(t);
+    IDX_RE.lastIndex = 0;
+    while ((m = IDX_RE.exec(str))) {
+      out += str.slice(last, m.index) + m[0][0] + `<tspan dy="2.5" font-size="75%">${m[0].slice(1)}</tspan><tspan dy="-2.5">`;
+      last = IDX_RE.lastIndex;
+      out += '\u200b';
+      out += '</tspan>';
+    }
+    return out + str.slice(last);
+  }
+
   function Svg() {
     const parts = [];
     const api = {
@@ -1796,7 +1817,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
       text: (x, y, s, opts) => {
         const o = opts || {};
         const rot = o.rot ? ` transform="rotate(-90 ${x} ${y})"` : '';
-        parts.push(`<text x="${x}" y="${y}" class="${o.cls || 'sd-t'}" text-anchor="${o.anchor || 'middle'}"${rot}>${s}</text>`);
+        parts.push(`<text x="${x}" y="${y}" class="${o.cls || 'sd-t'}" text-anchor="${o.anchor || 'middle'}"${rot}>${subText(s)}</text>`);
       },
       // Горизонтальный размер: xa..xb на высоте y, выносные линии до fromY
       dimH(xa, xb, y, label, fromY, level) {
@@ -22474,17 +22495,38 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   'use strict';
 
   const FONT = 'ISOCPEUR';
-  const SZ = 28, SZ_TAB = 28, SZ_TITLE = 28; // полупункты: весь отчёт 14 пт
+  const SZ = 24, SZ_TAB = 24, SZ_TITLE = 24; // полупункты: весь отчёт 12 пт
   const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
 
-  // Число в русской записи: запятая, неразрывный пробел в разрядах
+  // Число в русской записи: запятая; разряды разделяются пробелом только в числах от 10 000 (1500, но 12 500)
   function f(v, digits) {
     if (v === null || v === undefined || (typeof v === 'number' && !Number.isFinite(v))) return '—';
     if (typeof v !== 'number') return String(v);
     let d = digits;
     if (d === undefined) { const a = Math.abs(v); d = a >= 1000 ? 0 : a >= 100 ? 1 : a >= 10 ? 2 : 3; }
-    const s = v.toLocaleString('ru-RU', { minimumFractionDigits: 0, maximumFractionDigits: d }).replace(/[    ]/g, ' ');
+    const s = v.toLocaleString('ru-RU', { minimumFractionDigits: 0, maximumFractionDigits: d, useGrouping: Math.abs(v) >= 10000 }).replace(/[\u00a0\u2009\u202f ]/g, '\u00a0');
     return s.replace('-', '−');
+  }
+  // То же для готового текста (значения из формы): «1 500» → «1500», «12 500» не меняется
+  const ungroup4 = (t) => String(t).replace(/(?<![\d,])(?<!\d[\s\u00a0\u2009\u202f])(\d)[\s\u00a0\u2009\u202f](\d{3})(?!\d|[\s\u00a0\u2009\u202f]\d{3})/g, '$1$2');
+
+  // Обозначения, записанные в тексте без разметки («h0», «Rbt», «l0,an», «5ds»), → h_{0}, R_{bt}, l_{0,an}, 5d_{s}:
+  // первая буква — основание, остальное — нижний индекс. Тот же список — в schemes.js (подписи схем).
+  const IDX_TOKENS = ['l0,an', 'ls,пр', 'As,cal', 'As,fac', 'As,тр', 'As,x', 'As,y', 'ds,x', 'ds,y', 'Fb,ult', 'Mb,ult', 'Ab,loc', 'Ab,max', 'Rb,loc',
+    'Mx,tot', 'My,tot', 'Rbt', 'Rsw', 'Rb', 'Rs', 'Asw', 'As', 'h01', 'h0', 'b01', 'b02', 'c01', 'c02', 'lan', 'lfac', 'ls', 'dsv', 'dsw', 'ds',
+    'lлап', 'lзад', 'Fper', 'Fult', 'Qult', 'Qlim', 'Qb1', 'Qb', 'Q1', 'Mult', 'Msec', 'Ms', 'Ns', 'Kmax', 'e0', 'γb1', 'η1', 'β1', 'β2',
+    'bcol', 'hcol', 'bpl', 'hpl', 'bpk', 'hpk', 'hanc', 'Af', 'l0', 'Fi', 'F1', 'kM', 'Mx', 'My', 'MX', 'MY', 'b2', 'h2', 'l2', 'aт', 'aб', 'amin',
+    'bсв', 'xсв', 'yсв', 'zw', 'sw', 'nr', 'nx', 'ny', 'bred', 'Lx', 'Ly', 'c0', 'Fb'];
+  const IDX_RE = new RegExp(`(?<![A-Za-z\u0400-\u04ff_{}])(${IDX_TOKENS.slice().sort((a, b) => b.length - a.length).join('|')})(?![A-Za-z0-9\u0400-\u04ff_^{])`, 'g');
+  const idx = (t) => String(t).split(/([_^]\{[^}]*\})/).map((x, i) => (i % 2 ? x : x.replace(IDX_RE, (m0) => `${m0[0]}_{${m0.slice(1)}}`))).join('');
+  // Армирование нижней сетки одной строкой: «Ø16 А500С шаг 200 мм вдоль X; Ø16 А500С шаг 200 мм вдоль Y»
+  const MARK = { 'А500': 'А500С', 'В500': 'В500С' }; // марка стали по ГОСТ 34028 для класса по СП 63
+  const markOf = (cls) => MARK[cls] || cls;
+  function rebarText(r) {
+    const p = r.input, ms = r.mesh, cls = markOf(p.rebarClass);
+    if (!ms) return `${p.nx} Ø${p.dsx} ${cls} вдоль X; ${p.ny} Ø${p.dsy} ${cls} вдоль Y`;
+    const one = (q, ax) => `Ø${q.d} ${cls} шаг ${f(q.s, 0)} мм${q.sAdd !== null ? ` (у краёв ${q.kAdd}×${f(q.sAdd, 0)} мм)` : ''} вдоль ${ax}`;
+    return `${one(ms.x, 'X')}; ${one(ms.y, 'Y')}`;
   }
   const k3 = (v) => (isNum(v) ? v.toLocaleString('ru-RU', { minimumFractionDigits: 3, maximumFractionDigits: 3 }) : '—');
   // Число в формуле: отрицательное — в скобках
@@ -22504,8 +22546,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   const W_RPR = `<w:rPr><w:rFonts w:ascii="${FONT}" w:hAnsi="${FONT}" w:cs="${FONT}"/><w:i/><w:iCs/><w:sz w:val="${SZ}"/><w:szCs w:val="${SZ}"/></w:rPr>`;
   // Режим единиц текущего отчёта: в тс обозначения «кН» заменяются на «тс» в тексте и формулах
   let UNIT_T = false;
-  const uText = (t) => (UNIT_T ? String(t).replace(/кН/g, 'тс') : t);
-  const mRun = (text) => (text === '' ? '' : `<m:r><m:rPr><m:nor/></m:rPr>${W_RPR}<m:t xml:space="preserve">${xmlEsc(uText(text))}</m:t></m:r>`);
+  const uText = (t) => idx(ungroup4(UNIT_T ? String(t).replace(/кН/g, 'тс') : t));
+  const mRun = (text) => (text === '' ? '' : `<m:r><m:rPr><m:nor/></m:rPr>${W_RPR}<m:t xml:space="preserve">${xmlEsc(UNIT_T ? String(text).replace(/кН/g, 'тс') : text)}</m:t></m:r>`);
   const CTRL = `<m:ctrlPr>${W_RPR}</m:ctrlPr>`;
 
   // Разбор строки с индексами: основание индекса — последний символ перед «_» / «^»
@@ -22561,7 +22603,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   function omml(node) {
     if (node === null || node === undefined) return '';
     if (typeof node === 'number') return mRun(f(node));
-    if (typeof node === 'string') return parseParens(node);
+    if (typeof node === 'string') return parseParens(idx(ungroup4(node)));
     if (node.t === 'seq') return node.xs.map(omml).join('');
     if (node.t === 'sup') return `<m:sSup><m:sSupPr>${CTRL}</m:sSupPr><m:e>${omml(node.b)}</m:e><m:sup>${omml(node.s)}</m:sup></m:sSup>`;
     if (node.t === 'rad') return `<m:rad><m:radPr><m:degHide m:val="1"/>${CTRL}</m:radPr><m:deg/><m:e>${omml(node.x)}</m:e></m:rad>`;
@@ -22662,7 +22704,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       return mm ? `${ctx.chap}.${Number(mm[1]) - 1}${mm[2]}. ${mm[3]}` : text;
     };
     const heading = (text, level, extra) => new Paragraph({
-      children: [new TextRun({ ...BASE, size: SZ, bold: true, color: '000000', text: renum(text) })],
+      children: runs(renum(text), { ...BASE, size: SZ, bold: true, color: '000000' }),
       heading: level === 2 || mode === 'chapter' ? HeadingLevel.HEADING_2 : HeadingLevel.HEADING_1,
       ...BODY, keepNext: true, keepLines: true, ...(extra || {}),
     });
@@ -22671,7 +22713,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       return new Paragraph({
         children: [
           ...mixed([m(`K = ${k3(K)} ${ok ? '≤' : '>'} 1`)], BASE),
-          new TextRun({ ...BASE, bold: true, text: ' — ' + (ok ? okText || 'прочность обеспечена.' : badText || 'прочность НЕ обеспечена.') }),
+          ...runs(' — ' + (ok ? okText || 'прочность обеспечена.' : badText || 'прочность НЕ обеспечена.'), { ...BASE, bold: true }),
         ],
         ...BODY,
       });
@@ -22754,15 +22796,11 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       NORMS.forEach((t) => P('– ' + t));
       children.push(heading('2. Сводка по ростверкам'));
       P(`В документ включены расчёты ${o.items.length} ростверков; подробный расчёт каждого — в разделах 3–${o.items.length + 2}.`);
-      table('Результаты расчёта ростверков', ['№', 'Ростверк', 'Размеры, мм', 'K_{max}', 'Определяющая проверка', 'Вывод'],
-        o.items.map((it, i) => [String(i + 3), it.name, it.dims, k3(it.K), it.gov, it.ok ? 'обеспечена' : 'НЕ обеспечена']), 3, [7, 17, 20, 10, 25, 21]);
+      table('Результаты расчёта ростверков', ['№', 'Ростверк', 'Размеры, мм', 'K_{max}', 'Определяющая проверка', 'Армирование нижней сетки', 'Вывод'],
+        o.items.map((it, i) => [String(i + 3), it.name, it.dims, k3(it.K), it.gov, it.rebar, it.ok ? 'обеспечена' : 'НЕ обеспечена']), 3, [5, 13, 18, 9, 20, 22, 13]);
       return null;
     }
-    if (mode === 'postamble') {
-      children.push(heading(`${ctx.chap}. Допущения расчёта`, 1, { pageBreakBefore: true }));
-      (o.notes || []).forEach((t, i) => P(`${i + 1}. ${t}`));
-      return { doc: makeDoc(), eqs };
-    }
+    if (mode === 'postamble') return { doc: makeDoc(), eqs };
 
     // ---------- Заголовок ----------
     if (mode === 'chapter') {
@@ -22808,7 +22846,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     const ms = r.mesh;
     if (ms) {
       const chainTxt = (q) => [q.c1, ...q.groups.map((g) => (g.cnt > 1 ? `${g.cnt}×${f(g.s, 0)}` : f(g.s, 0))), q.c2].map((v) => (typeof v === 'number' ? f(v, 0) : v)).join(' + ');
-      const mline = (pos, ax, q) => `поз. ${pos} — ${q.n} Ø${q.d} ${ms.cls} вдоль ${ax}, длина ${f(q.len, 0)} мм, шаг ${f(q.s, 0)} мм${q.sAdd !== null ? `, доборные ${q.kAdd}×${f(q.sAdd, 0)} мм` : ''} (раскладка ${chainTxt(q)} = ${f(q.across, 0)} мм)`;
+      const mline = (pos, ax, q) => `поз. ${pos} — ${q.n} Ø${q.d} ${markOf(ms.cls)} вдоль ${ax}, длина ${f(q.len, 0)} мм, шаг ${f(q.s, 0)} мм${q.sAdd !== null ? `, доборные ${q.kAdd}×${f(q.sAdd, 0)} мм` : ''} (раскладка ${chainTxt(q)} = ${f(q.across, 0)} мм)`;
       P(`Нижняя сетка: ${mline(1, 'X', ms.x)}; ${mline(2, 'Y', ms.y)}.${ms.module ? ` Шаги стержней приняты кратными ${ms.module} мм, привязки крайних стержней — не менее ${f(ms.x.cMin, 0)} мм от граней ростверка.` : ` Оси крайних стержней — в ${f(ms.x.c, 0)} мм от граней ростверка.`} Шаг стержней не более 1,5h и 400 мм (СП 63.13330.2018 п. 10.3.8) — ${ms.x.okMax && ms.y.okMax ? 'выполнено' : 'НЕ выполнено'}; расстояние в свету не менее d и 25 мм (п. 10.3.5) — ${ms.x.okClear && ms.y.okClear ? 'выполнено' : 'НЕ выполнено'}.`, { keepNext: true });
       image(o.images && o.images.mesh, 'Раскладка нижней сетки ростверка', 400);
     }
@@ -22817,7 +22855,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     children.push(heading('3. Расчётные характеристики и размеры'));
     P(`Бетон класса ${p.concrete}, γ_{b1} = ${f(p.gammaB1)} (СП 63, табл. 6.8):`, { keepNext: true });
     eq(`R_{bt} = ${f(r.Rbt)} МПа = ${fR(RbtCm)} кН/см^{2};   R_{b} = ${f(r.Rb)} МПа = ${fR(RbCm)} кН/см^{2}.`);
-    P(`Рабочая арматура ${p.rebarClass}, R_{s} = ${f(r.Rs, 0)} МПа (СП 63, табл. 6.14):`, { keepNext: true });
+    P(`Рабочая арматура ${markOf(p.rebarClass)} (класс ${p.rebarClass}), R_{s} = ${f(r.Rs, 0)} МПа (СП 63, табл. 6.14):`, { keepNext: true });
     eq(E('A_{s,x} = ', fr(`${p.nx}·π·${f(p.dsx / 10)}^{2}`, '4'), ` = ${f(r.Asx)} см^{2};   A_{s,y} = `, fr(`${p.ny}·π·${f(p.dsy / 10)}^{2}`, '4'), ` = ${f(r.Asy)} см^{2};`), true);
     eq(E('ξ_{R} = ', fr('0,8', E('1 + ', fr('R_{s}', 'E_{s}·ε_{b2}'))), ' = ', fr('0,8', E('1 + ', fr(f(r.Rs, 0), '200 000·0,0035'))), ` = ${f(r.xiR)}.`));
     if (useSw) P(`Поперечная арматура ${p.swClass}: R_{sw} = ${f(r.Rsw, 0)} МПа (СП 63, табл. 6.15).`);
@@ -23135,9 +23173,10 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       [...r.summary.map((s) => [s.title, k3(s.K), s.note ? `${s.verdict}. ${s.note}` : s.verdict]),
         [r.edgeCheck.title, `${f(r.edgeCheck.value, 0)} мм`, r.edgeCheck.verdict]], 1, [55, 12, 33]);
     children.push(new Paragraph({
-      children: [new TextRun({ ...BASE, bold: true, text: 'Вывод: ' + r.overallText })],
+      children: runs('Вывод: ' + r.overallText, { ...BASE, bold: true }),
       ...BODY,
     }));
+    P(`Армирование нижней сетки: ${rebarText(r)}.`);
     const fails = r.summary.filter((s) => s.pass === false);
     if (fails.length) {
       P('Требуется корректировка: ' + fails.map((s) => `${s.title.toLowerCase()} (K = ${k3(s.K)})`).join('; ') + '.');
@@ -23146,9 +23185,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       children.push(heading('Замечания к исходным данным', 2));
       o.warnings.forEach((w, i) => P(`${i + 1}. ${w.title}. ${w.text}`));
     }
-    if (mode === 'chapter') return null; // допущения — один раз в конце сводного отчёта
-    children.push(heading('Допущения', 2));
-    (o.notes || []).forEach((t, i) => P(`${i + 1}. ${t}`));
+    if (mode === 'chapter') return null;
     return { doc: makeDoc(), eqs };
 
     function makeDoc() {
@@ -23187,7 +23224,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     });
   }
 
-  // Сводный отчёт по нескольким ростверкам: items — [{ r, opts }], opts.notes — допущения (общие)
+  // Сводный отчёт по нескольким ростверкам: items — [{ r, opts }]
   async function createMany(docx, JSZip, items, opts, type) {
     const o = opts || {};
     const ctx = { children: [], eqs: [], cnt: { fig: 0, tab: 0 } };
@@ -23197,12 +23234,12 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       return {
         name: (it.opts && it.opts.name) || `Ростверк ${i + 1}`,
         dims: `${f(p.l, 0)}×${f(p.b, 0)}×${f(p.h, 0)}${r.step ? ` + ступень ${f(r.step.L, 0)}×${f(r.step.B, 0)}×${f(r.step.H, 0)}` : ''}`,
-        K: worst.K, gov: worst.title, ok: r.overall,
+        K: worst.K, gov: worst.title, ok: r.overall, rebar: rebarText(r),
       };
     });
     build(docx, items[0].r, { name: o.name, items: summary, units: o.units }, Object.assign(ctx, { mode: 'preamble' }));
     items.forEach((it, i) => build(docx, it.r, it.opts, Object.assign(ctx, { mode: 'chapter', chap: i + 3 })));
-    const { doc, eqs } = build(docx, items[0].r, { notes: o.notes, units: o.units }, Object.assign(ctx, { mode: 'postamble', chap: items.length + 3 }));
+    const { doc, eqs } = build(docx, items[0].r, { units: o.units }, Object.assign(ctx, { mode: 'postamble', chap: items.length + 3 }));
     const b64 = await docx.Packer.toBase64String(doc);
     const zip = await JSZip.loadAsync(b64, { base64: true });
     const xml = await zip.file('word/document.xml').async('string');
@@ -23213,7 +23250,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     });
   }
 
-  const VERSION = '2026-10-22.3';
+  const VERSION = '2026-11-12.1';
   return { VERSION, create, createMany, build, omml, injectMath, FONT };
 });
 
@@ -24461,7 +24498,7 @@ details.xs-more { border: 1px dashed var(--line); border-radius: 8px; } details.
   'use strict';
   const C = window.RostverkCalc;
   // Страница и подключаемые файлы ядра должны быть одной версии: иначе часть расчёта не отобразится
-  const APP_VERSION = '2026-10-22.3';
+  const APP_VERSION = '2026-11-12.1';
   function banner(msg) {
     let el = document.getElementById('appBanner');
     if (!el) {
@@ -25652,7 +25689,6 @@ details.xs-more { border: 1px dashed var(--line); border-radius: 8px; } details.
     ]);
     return { r, opts: { name: (data.reportName || '').trim(), inputGroups: inputGroupsForReport(data, r), images: { plan, column, corner, mesh, anchor }, anchorCaption: sc.anchor && sc.anchor.caption, warnings: convIssues(v.warnings), units: ws.units || 'кН' } };
   }
-  const reportNotes = () => [...document.querySelectorAll('.notes li')].map((li) => li.textContent.trim());
   const libsReady = () => {
     if (window.docx && window.JSZip && window.RostverkReport && window.RostverkSchemes) return true;
     setStatus('Библиотека формирования Word не загрузилась — проверьте подключение к интернету и обновите страницу.', true);
@@ -25719,7 +25755,6 @@ details.xs-more { border: 1px dashed var(--line); border-radius: 8px; } details.
     try {
       const it = await reportItem(state);
       if (!it) throw new Error('расчёт не выполнен');
-      it.opts.notes = reportNotes();
       const blob = await window.RostverkReport.create(window.docx, window.JSZip, it.r, it.opts, 'blob');
       await saveFile(`Расчет_продавливания_${safeName(it.opts.name || 'ростверк')}.docx`, blob);
     } catch (e) {
@@ -25773,7 +25808,7 @@ details.xs-more { border: 1px dashed var(--line); border-radius: 8px; } details.
       }
       if (!items.length) throw new Error('нет ростверков с корректными исходными данными');
       const title = $('manyName').value.trim();
-      const blob = await window.RostverkReport.createMany(window.docx, window.JSZip, items, { name: title, notes: reportNotes(), units: ws.units || 'кН' }, 'blob');
+      const blob = await window.RostverkReport.createMany(window.docx, window.JSZip, items, { name: title, units: ws.units || 'кН' }, 'blob');
       await saveFile(`Сводный_отчет_${title ? safeName(title) + '_' : ''}${items.length}_ростверков.docx`, blob);
     } catch (e) {
       setStatus('Не удалось сформировать сводный отчёт: ' + (e && e.message ? e.message : e), true);
